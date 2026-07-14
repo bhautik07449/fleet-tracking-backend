@@ -11,7 +11,7 @@ export const getMyCompany = async (req: AuthRequest, res: Response): Promise<any
       return sendError(res, 400, 'User is not associated with any company');
     }
 
-    const company = await companyService.getCompanyById(companyId);
+    const company = await companyService.getCompanyInfo(companyId);
     return sendSuccess(res, 200, 'Company retrieved successfully', company);
   } catch (error: any) {
     return sendError(res, 404, error.message || 'Company not found');
@@ -30,7 +30,7 @@ export const updateMyCompany = async (req: AuthRequest, res: Response): Promise<
       return sendError(res, 400, error.details[0].message);
     }
 
-    const updatedCompany = await companyService.updateCompany(companyId, value);
+    const updatedCompany = await companyService.updateCompanyInfo(companyId, value);
     return sendSuccess(res, 200, 'Company updated successfully', updatedCompany);
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to update company');

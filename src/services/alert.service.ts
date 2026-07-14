@@ -1,71 +1,56 @@
-import prisma from '../prisma';
-import { sendCriticalAlertEmail } from './notification.service';
+import pool from '../db';
 
-export const getAlertsByCompanyId = async (companyId: string, skip: number = 0, take: number = 10, isResolved?: boolean) => {
-  const whereClause: any = { vehicle: { companyId } };
-  
-  if (isResolved !== undefined) {
-    whereClause.isResolved = isResolved;
-  }
+export const getAlerts = async (companyId: string, skip?: number, limit?: number, isResolved?: boolean) => {
+  const res = await pool.query(`
+    SELECT a.*, 
+      json_build_object('id', v.id, 'vehicleNumber', v."vehicleNumber") as vehicle
+    FROM "Alert" a
+    JOIN "Vehicle" v ON a."vehicleId" = v.id
+    WHERE v."companyId" = $1 ORDER BY a."createdAt" DESC
+  `, [companyId]);
 
-  return prisma.alert.findMany({
-    where: whereClause,
-    skip,
-    take,
-    include: {
-      vehicle: { select: { id: true, vehicleNumber: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-};
-
-export const createSystemAlert = async (vehicleId: string, companyId: string, type: any, message: string) => {
-  // Validate that the vehicle belongs to this company
-  const vehicle = await prisma.vehicle.findFirst({ where: { id: vehicleId, companyId } });
-  if (!vehicle) throw new Error('Vehicle not found in your company');
-
-  const alert = await prisma.alert.create({
-    data: {
-      vehicleId,
-      type,
-      message,
-      isResolved: false,
-    },
-  });
-
-  // Here, we could also emit this via Socket.IO immediately
-  const io = require('../socket').getIO();
-  io.to(companyId).emit('new-alert', alert);
-
-  // Send Email for Critical Alerts
-  if (type === 'SOS' || type === 'OVERSPEED' || type === 'POWER_CUT') {
-    sendCriticalAlertEmail(companyId, { ...alert, vehicleNumber: vehicle.vehicleNumber });
-  }
-
-  return alert;
+  // Map isRead to isResolved to match frontend expectations
+  return res.rows.map(row => ({
+    ...row,
+    isResolved: row.isRead
+  }));
 };
 
 export const resolveAlert = async (alertId: string, companyId: string) => {
-  const alert = await prisma.alert.findFirst({
-    where: { id: alertId, vehicle: { companyId } },
-  });
+  const check = await pool.query(`
+    SELECT a.id FROM "Alert" a
+    JOIN "Vehicle" v ON a."vehicleId" = v.id
+    WHERE a.id = $1 AND v."companyId" = $2
+  `, [alertId, companyId]);
 
-  if (!alert) throw new Error('Alert not found in your company');
+  if (check.rows.length === 0) {
+    throw new Error('Alert not found');
+  }
 
-  return prisma.alert.update({
-    where: { id: alertId },
-    data: { isResolved: true },
-  });
+  const res = await pool.query('UPDATE "Alert" SET "isRead" = true WHERE id = $1 RETURNING *', [alertId]);
+  return res.rows[0];
+};
+
+export const createSystemAlert = async (vehicleId: string, companyId: string, type: string, message: string) => {
+  const id = require('crypto').randomUUID();
+  const res = await pool.query(
+    'INSERT INTO "Alert" (id, "vehicleId", type, message) VALUES ($1, $2, $3, $4) RETURNING *',
+    [id, vehicleId, type, message]
+  );
+  return res.rows[0];
 };
 
 export const deleteAlert = async (alertId: string, companyId: string) => {
-  const alert = await prisma.alert.findFirst({
-    where: { id: alertId, vehicle: { companyId } },
-  });
+  const check = await pool.query(`
+    SELECT a.id FROM "Alert" a
+    JOIN "Vehicle" v ON a."vehicleId" = v.id
+    WHERE a.id = $1 AND v."companyId" = $2
+  `, [alertId, companyId]);
 
-  if (!alert) throw new Error('Alert not found in your company');
-
-  return prisma.alert.delete({
-    where: { id: alertId },
-  });
+  if (check.rows.length === 0) {
+    throw new Error('Alert not found');
+  }
+  await pool.query('DELETE FROM "Alert" WHERE id = $1', [alertId]);
+  return { message: 'Alert deleted successfully' };
 };
+

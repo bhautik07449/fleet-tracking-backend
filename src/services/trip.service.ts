@@ -1,69 +1,88 @@
-import prisma from '../prisma';
+import pool from '../db';
+import crypto from 'crypto';
 
-export const getTripsByCompanyId = async (companyId: string, skip: number = 0, take: number = 10) => {
-  return prisma.trip.findMany({
-    where: { vehicle: { companyId } },
-    skip,
-    take,
-    include: {
-      vehicle: { select: { id: true, vehicleNumber: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+export const getTrips = async (companyId: string, skip?: number, limit?: number) => {
+  const res = await pool.query(`
+    SELECT t.*, 
+      json_build_object('id', v.id, 'vehicleNumber', v."vehicleNumber") as vehicle
+    FROM "Trip" t
+    JOIN "Vehicle" v ON t."vehicleId" = v.id
+    WHERE v."companyId" = $1 ORDER BY t."createdAt" DESC
+  `, [companyId]);
+  return res.rows;
 };
 
 export const startTrip = async (vehicleId: string, companyId: string, startLocation: any) => {
-  const vehicle = await prisma.vehicle.findFirst({ where: { id: vehicleId, companyId } });
-  if (!vehicle) throw new Error('Vehicle not found in your company');
+  const vCheck = await pool.query('SELECT id FROM "Vehicle" WHERE id = $1 AND "companyId" = $2', [vehicleId, companyId]);
+  if (vCheck.rows.length === 0) {
+    throw new Error('Vehicle not found');
+  }
 
-  const ongoingTrip = await prisma.trip.findFirst({
-    where: { vehicleId, status: 'ONGOING' },
-  });
+  const ongoingCheck = await pool.query('SELECT id FROM "Trip" WHERE "vehicleId" = $1 AND status = $2', [vehicleId, 'ONGOING']);
+  if (ongoingCheck.rows.length > 0) {
+    throw new Error('Vehicle already has an ongoing trip');
+  }
 
-  if (ongoingTrip) throw new Error('Vehicle already has an ongoing trip');
-
-  return prisma.trip.create({
-    data: {
-      vehicleId,
-      startLocation,
-      status: 'ONGOING',
-    },
-  });
+  const id = crypto.randomUUID();
+  const res = await pool.query(
+    'INSERT INTO "Trip" (id, "vehicleId", "startLocation", status, "updatedAt") VALUES ($1, $2, $3, $4, NOW()) RETURNING *',
+    [id, vehicleId, JSON.stringify(startLocation), 'ONGOING']
+  );
+  return res.rows[0];
 };
 
 export const endTrip = async (tripId: string, companyId: string, endLocation: any) => {
-  const trip = await prisma.trip.findFirst({
-    where: { id: tripId, vehicle: { companyId } },
-  });
+  const check = await pool.query(`
+    SELECT t.* FROM "Trip" t
+    JOIN "Vehicle" v ON t."vehicleId" = v.id
+    WHERE t.id = $1 AND v."companyId" = $2
+  `, [tripId, companyId]);
 
-  if (!trip) throw new Error('Trip not found');
-  if (trip.status !== 'ONGOING') throw new Error('Trip is already completed or cancelled');
+  if (check.rows.length === 0) {
+    throw new Error('Trip not found');
+  }
 
-  // Calculate approximate duration in seconds
+  const trip = check.rows[0];
+  if (trip.status !== 'ONGOING') {
+    throw new Error('Trip is not ongoing');
+  }
+
+  // Calculate duration
   const startTime = new Date(trip.startTime).getTime();
   const endTime = new Date().getTime();
   const duration = Math.floor((endTime - startTime) / 1000);
 
-  // Note: For a production app, the distance should be calculated by summing the Haversine distances 
-  // between all GPS points logged for this vehicle between startTime and endTime.
-  // We will leave distance as 0 or a placeholder here unless we do the DB query.
+  const res = await pool.query(`
+    UPDATE "Trip" 
+    SET "endLocation" = $1, status = $2, "endTime" = NOW(), duration = $3, "updatedAt" = NOW()
+    WHERE id = $4 RETURNING *
+  `, [JSON.stringify(endLocation), 'COMPLETED', duration, tripId]);
 
-  return prisma.trip.update({
-    where: { id: tripId },
-    data: {
-      endLocation,
-      status: 'COMPLETED',
-      endTime: new Date(),
-      duration,
-    },
-  });
+  return res.rows[0];
+};
+
+export const getTripById = async (tripId: string, companyId: string) => {
+  const check = await pool.query(`
+    SELECT t.* FROM "Trip" t
+    JOIN "Vehicle" v ON t."vehicleId" = v.id
+    WHERE t.id = $1 AND v."companyId" = $2
+  `, [tripId, companyId]);
+
+  if (check.rows.length === 0) {
+    throw new Error('Trip not found');
+  }
+  return check.rows[0];
 };
 
 export const getOngoingTrip = async (vehicleId: string, companyId: string) => {
-  const vehicle = await prisma.vehicle.findFirst({ where: { id: vehicleId, companyId } });
-  if (!vehicle) throw new Error('Vehicle not found in your company');
+  const check = await pool.query(`
+    SELECT t.* FROM "Trip" t
+    JOIN "Vehicle" v ON t."vehicleId" = v.id
+    WHERE t."vehicleId" = $1 AND v."companyId" = $2 AND t.status = 'ONGOING'
+  `, [vehicleId, companyId]);
 
-  return prisma.trip.findFirst({
-    where: { vehicleId, status: 'ONGOING' },
-  });
+  if (check.rows.length === 0) {
+    throw new Error('Ongoing trip not found');
+  }
+  return check.rows[0];
 };

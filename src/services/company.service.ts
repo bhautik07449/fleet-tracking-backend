@@ -1,36 +1,32 @@
-import prisma from '../prisma';
+import pool from '../db';
 
-export const getCompanyById = async (companyId: string) => {
-  const company = await prisma.company.findUnique({
-    where: { id: companyId },
-    include: {
-      subscriptions: true,
-      _count: {
-        select: { vehicles: true, drivers: true, users: true },
-      },
-    },
-  });
-
-  if (!company) {
+export const getCompanyInfo = async (companyId: string) => {
+  const res = await pool.query('SELECT * FROM "Company" WHERE id = $1', [companyId]);
+  if (res.rows.length === 0) {
     throw new Error('Company not found');
   }
-
-  return company;
+  return res.rows[0];
 };
 
-export const updateCompany = async (companyId: string, data: any) => {
-  const company = await prisma.company.findUnique({ where: { id: companyId } });
-  if (!company) {
-    throw new Error('Company not found');
-  }
+export const updateCompanyInfo = async (companyId: string, data: any) => {
+  const updates = [];
+  const values = [];
+  let paramIdx = 1;
 
-  return prisma.company.update({
-    where: { id: companyId },
-    data: {
-      name: data.name !== undefined ? data.name : company.name,
-      address: data.address !== undefined ? data.address : company.address,
-      phone: data.phone !== undefined ? data.phone : company.phone,
-      settings: data.settings !== undefined ? data.settings : company.settings,
-    },
-  });
+  if (data.name !== undefined) { updates.push(`name = $${paramIdx++}`); values.push(data.name); }
+  if (data.address !== undefined) { updates.push(`address = $${paramIdx++}`); values.push(data.address); }
+  if (data.phone !== undefined) { updates.push(`phone = $${paramIdx++}`); values.push(data.phone); }
+  if (data.settings !== undefined) { updates.push(`settings = $${paramIdx++}`); values.push(data.settings); }
+
+  if (updates.length === 0) return getCompanyInfo(companyId);
+
+  updates.push(`"updatedAt" = NOW()`);
+  values.push(companyId);
+
+  const res = await pool.query(
+    `UPDATE "Company" SET ${updates.join(', ')} WHERE id = $${paramIdx} RETURNING *`,
+    values
+  );
+
+  return res.rows[0];
 };

@@ -11,7 +11,7 @@ export const getDevices = async (req: AuthRequest, res: Response): Promise<any> 
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
 
-    const devices = await gpsDeviceService.getDevicesByCompanyId(companyId, skip, limit);
+    const devices = await gpsDeviceService.getGpsDevices(companyId, skip, limit);
     return sendSuccess(res, 200, 'GPS Devices retrieved successfully', { devices, page, limit });
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to retrieve devices');
@@ -21,14 +21,14 @@ export const getDevices = async (req: AuthRequest, res: Response): Promise<any> 
 export const getDevice = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const companyId = req.user.companyId;
-    const device = await gpsDeviceService.getDeviceByIdAndCompanyId(req.params.id, companyId);
+    const device = await gpsDeviceService.getGpsDeviceById(req.params.id as string, companyId);
     return sendSuccess(res, 200, 'GPS Device retrieved successfully', device);
   } catch (error: any) {
     return sendError(res, 404, error.message || 'GPS Device not found');
   }
 };
 
-export const createDevice = async (req: AuthRequest, res: Response): Promise<any> => {
+export const createGpsDevice = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const companyId = req.user.companyId;
     
@@ -37,14 +37,14 @@ export const createDevice = async (req: AuthRequest, res: Response): Promise<any
       return sendError(res, 400, error.details[0].message);
     }
 
-    const newDevice = await gpsDeviceService.createDevice(companyId, value);
+    const newDevice = await gpsDeviceService.createGpsDevice(companyId, value);
     return sendSuccess(res, 201, 'GPS Device created successfully', newDevice);
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to create GPS device');
   }
 };
 
-export const updateDevice = async (req: AuthRequest, res: Response): Promise<any> => {
+export const updateGpsDevice = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const companyId = req.user.companyId;
 
@@ -53,17 +53,17 @@ export const updateDevice = async (req: AuthRequest, res: Response): Promise<any
       return sendError(res, 400, error.details[0].message);
     }
 
-    const updatedDevice = await gpsDeviceService.updateDevice(req.params.id, companyId, value);
+    const updatedDevice = await gpsDeviceService.updateGpsDevice(req.params.id as string, companyId, value);
     return sendSuccess(res, 200, 'GPS Device updated successfully', updatedDevice);
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to update GPS device');
   }
 };
 
-export const deleteDevice = async (req: AuthRequest, res: Response): Promise<any> => {
+export const deleteGpsDevice = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const companyId = req.user.companyId;
-    await gpsDeviceService.deleteDevice(req.params.id, companyId);
+    await gpsDeviceService.deleteGpsDevice(req.params.id as string, companyId);
     return sendSuccess(res, 200, 'GPS Device deleted successfully');
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to delete GPS device');

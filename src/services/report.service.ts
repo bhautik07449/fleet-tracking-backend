@@ -1,69 +1,55 @@
-import prisma from '../prisma';
+import pool from '../db';
 
-export const getTripReport = async (companyId: string, startDate: Date, endDate: Date, vehicleId?: string) => {
-  const whereClause: any = {
-    vehicle: { companyId },
-    createdAt: {
-      gte: startDate,
-      lte: endDate,
-    },
-  };
+export const generateTripReport = async (companyId: string, startDate: Date, endDate: Date, vehicleId?: string) => {
+  const tripsRes = await pool.query(`
+    SELECT t.*, 
+      json_build_object('id', v.id, 'vehicleNumber', v."vehicleNumber") as vehicle
+    FROM "Trip" t
+    JOIN "Vehicle" v ON t."vehicleId" = v.id
+    WHERE v."companyId" = $1 
+      AND t."createdAt" >= $2 
+      AND t."createdAt" <= $3
+    ORDER BY t."createdAt" DESC
+  `, [companyId, startDate, endDate]);
 
-  if (vehicleId) {
-    whereClause.vehicleId = vehicleId;
-  }
+  const trips = tripsRes.rows;
 
-  const trips = await prisma.trip.findMany({
-    where: whereClause,
-    include: {
-      vehicle: { select: { vehicleNumber: true, type: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-
-  // Calculate some basic aggregations
-  const totalTrips = trips.length;
-  const totalDuration = trips.reduce((acc, trip) => acc + (trip.duration || 0), 0);
-  const totalDistance = trips.reduce((acc, trip) => acc + (trip.distance || 0), 0);
+  const totalDistance = trips.reduce((sum, trip) => sum + (trip.distance || 0), 0);
+  const totalDuration = trips.reduce((sum, trip) => sum + (trip.duration || 0), 0);
 
   return {
-    summary: { totalTrips, totalDuration, totalDistance },
+    summary: {
+      totalTrips: trips.length,
+      totalDistance,
+      totalDuration,
+    },
     data: trips,
   };
 };
 
-export const getAlertReport = async (companyId: string, startDate: Date, endDate: Date, vehicleId?: string) => {
-  const whereClause: any = {
-    vehicle: { companyId },
-    createdAt: {
-      gte: startDate,
-      lte: endDate,
-    },
-  };
+export const generateAlertReport = async (companyId: string, startDate: Date, endDate: Date, type?: string) => {
+  const alertsRes = await pool.query(`
+    SELECT a.*, 
+      json_build_object('id', v.id, 'vehicleNumber', v."vehicleNumber") as vehicle
+    FROM "Alert" a
+    JOIN "Vehicle" v ON a."vehicleId" = v.id
+    WHERE v."companyId" = $1 
+      AND a."createdAt" >= $2 
+      AND a."createdAt" <= $3
+    ORDER BY a."createdAt" DESC
+  `, [companyId, startDate, endDate]);
 
-  if (vehicleId) {
-    whereClause.vehicleId = vehicleId;
-  }
+  const alerts = alertsRes.rows.map(row => ({
+    ...row,
+    isResolved: row.isRead
+  }));
 
-  const alerts = await prisma.alert.findMany({
-    where: whereClause,
-    include: {
-      vehicle: { select: { vehicleNumber: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-
-  // Aggregation by type
-  const alertCountsByType = alerts.reduce((acc: any, alert) => {
-    acc[alert.type] = (acc[alert.type] || 0) + 1;
-    return acc;
-  }, {});
+  const unresolvedAlerts = alerts.filter(a => !a.isResolved).length;
 
   return {
     summary: {
       totalAlerts: alerts.length,
-      unresolvedAlerts: alerts.filter((a) => !a.isResolved).length,
-      breakdown: alertCountsByType,
+      unresolvedAlerts,
     },
     data: alerts,
   };

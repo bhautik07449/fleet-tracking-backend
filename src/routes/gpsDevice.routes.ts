@@ -13,8 +13,8 @@ router.get('/', authorize(['COMPANY_OWNER', 'MANAGER']), gpsDeviceController.get
 router.get('/:id', authorize(['COMPANY_OWNER', 'MANAGER']), gpsDeviceController.getDevice);
 
 // Creation, Updating, Deletion can be done by MANAGER and COMPANY_OWNER
-router.post('/', authorize(['COMPANY_OWNER', 'MANAGER']), gpsDeviceController.createDevice);
-router.put('/:id', authorize(['COMPANY_OWNER', 'MANAGER']), gpsDeviceController.updateDevice);
-router.delete('/:id', authorize(['COMPANY_OWNER', 'MANAGER']), gpsDeviceController.deleteDevice);
+router.post('/', authorize(['COMPANY_OWNER', 'MANAGER']), gpsDeviceController.createGpsDevice);
+router.put('/:id', authorize(['COMPANY_OWNER', 'MANAGER']), gpsDeviceController.updateGpsDevice);
+router.delete('/:id', authorize(['COMPANY_OWNER', 'MANAGER']), gpsDeviceController.deleteGpsDevice);
 
 export default router;

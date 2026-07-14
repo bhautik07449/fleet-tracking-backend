@@ -16,7 +16,7 @@ export const getAlerts = async (req: AuthRequest, res: Response): Promise<any> =
       isResolved = req.query.isResolved === 'true';
     }
 
-    const alerts = await alertService.getAlertsByCompanyId(companyId, skip, limit, isResolved);
+    const alerts = await alertService.getAlerts(companyId, skip, limit, isResolved);
     return sendSuccess(res, 200, 'Alerts retrieved successfully', { alerts, page, limit });
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to retrieve alerts');
@@ -42,7 +42,7 @@ export const createManualAlert = async (req: AuthRequest, res: Response): Promis
 export const resolveAlert = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const companyId = req.user.companyId;
-    const updatedAlert = await alertService.resolveAlert(req.params.id, companyId);
+    const updatedAlert = await alertService.resolveAlert(req.params.id as string, companyId);
     return sendSuccess(res, 200, 'Alert resolved successfully', updatedAlert);
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to resolve alert');
@@ -52,7 +52,7 @@ export const resolveAlert = async (req: AuthRequest, res: Response): Promise<any
 export const deleteAlert = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const companyId = req.user.companyId;
-    await alertService.deleteAlert(req.params.id, companyId);
+    await alertService.deleteAlert(req.params.id as string, companyId);
     return sendSuccess(res, 200, 'Alert deleted successfully');
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to delete alert');

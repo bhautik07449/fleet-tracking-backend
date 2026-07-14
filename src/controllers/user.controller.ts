@@ -11,7 +11,7 @@ export const getUsers = async (req: AuthRequest, res: Response): Promise<any> =>
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
 
-    const users = await userService.getUsersByCompanyId(companyId, skip, limit);
+    const users = await userService.getUsers(companyId, skip, limit);
     return sendSuccess(res, 200, 'Users retrieved successfully', { users, page, limit });
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to retrieve users');
@@ -21,7 +21,7 @@ export const getUsers = async (req: AuthRequest, res: Response): Promise<any> =>
 export const getUser = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const companyId = req.user.companyId;
-    const user = await userService.getUserByIdAndCompanyId(req.params.id, companyId);
+    const user = await userService.getUserById(req.params.id as string, companyId);
     return sendSuccess(res, 200, 'User retrieved successfully', user);
   } catch (error: any) {
     return sendError(res, 404, error.message || 'User not found');
@@ -53,7 +53,7 @@ export const updateUser = async (req: AuthRequest, res: Response): Promise<any> 
       return sendError(res, 400, error.details[0].message);
     }
 
-    const updatedUser = await userService.updateUser(req.params.id, companyId, value);
+    const updatedUser = await userService.updateUser(req.params.id as string, companyId, value);
     return sendSuccess(res, 200, 'User updated successfully', updatedUser);
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to update user');
@@ -64,11 +64,11 @@ export const deleteUser = async (req: AuthRequest, res: Response): Promise<any> 
   try {
     const companyId = req.user.companyId;
     
-    if (req.params.id === req.user.userId) {
+    if (req.params.id as string === req.user.userId) {
       return sendError(res, 400, 'You cannot delete yourself');
     }
 
-    await userService.deleteUser(req.params.id, companyId);
+    await userService.deleteUser(req.params.id as string, companyId);
     return sendSuccess(res, 200, 'User deleted successfully');
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to delete user');

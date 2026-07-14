@@ -1,47 +1,52 @@
-import prisma from '../prisma';
+import pool from '../db';
+import crypto from 'crypto';
 import { hashPassword, comparePassword } from '../utils/hash';
 import { generateTokens, verifyRefreshToken } from '../utils/jwt';
 
 export const registerCompanyAndOwner = async (data: any) => {
-  const existingUser = await prisma.user.findUnique({ where: { email: data.email } });
-  if (existingUser) {
+  const existingUserRes = await pool.query('SELECT id FROM "User" WHERE email = $1', [data.email]);
+  if (existingUserRes.rows.length > 0) {
     throw new Error('Email is already registered');
   }
 
   const hashedPassword = await hashPassword(data.password);
 
-  const result = await prisma.$transaction(async (tx) => {
-    const company = await tx.company.create({
-      data: {
-        name: data.companyName,
-        email: data.email,
-      },
-    });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const companyId = crypto.randomUUID();
+    await client.query(
+      'INSERT INTO "Company" (id, name, email, "updatedAt") VALUES ($1, $2, $3, NOW())',
+      [companyId, data.companyName, data.email]
+    );
 
-    const user = await tx.user.create({
-      data: {
-        companyId: company.id,
-        name: data.name,
-        email: data.email,
-        password: hashedPassword,
-        role: 'COMPANY_OWNER',
-      },
-    });
+    const userId = crypto.randomUUID();
+    await client.query(
+      'INSERT INTO "User" (id, "companyId", name, email, password, role, "updatedAt") VALUES ($1, $2, $3, $4, $5, $6, NOW())',
+      [userId, companyId, data.name, data.email, hashedPassword, 'COMPANY_OWNER']
+    );
 
-    return { company, user };
-  });
+    await client.query('COMMIT');
 
-  const tokens = generateTokens(result.user.id, result.user.role, result.company.id);
+    const tokens = generateTokens(userId, 'COMPANY_OWNER', companyId);
 
-  return {
-    user: { id: result.user.id, name: result.user.name, email: result.user.email, role: result.user.role },
-    company: { id: result.company.id, name: result.company.name },
-    tokens,
-  };
+    return {
+      user: { id: userId, name: data.name, email: data.email, role: 'COMPANY_OWNER' },
+      company: { id: companyId, name: data.companyName },
+      tokens,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 export const loginUser = async (data: any) => {
-  const user = await prisma.user.findUnique({ where: { email: data.email } });
+  const userRes = await pool.query('SELECT * FROM "User" WHERE email = $1', [data.email]);
+  const user = userRes.rows[0];
+
   if (!user || !user.isActive) {
     throw new Error('Invalid credentials or inactive account');
   }
@@ -65,7 +70,9 @@ export const refreshToken = async (token: string) => {
     throw new Error('Invalid refresh token');
   }
 
-  const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+  const userRes = await pool.query('SELECT * FROM "User" WHERE id = $1', [decoded.userId]);
+  const user = userRes.rows[0];
+
   if (!user || !user.isActive) {
     throw new Error('User not found or inactive');
   }

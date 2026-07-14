@@ -11,7 +11,7 @@ export const getTrips = async (req: AuthRequest, res: Response): Promise<any> =>
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
 
-    const trips = await tripService.getTripsByCompanyId(companyId, skip, limit);
+    const trips = await tripService.getTrips(companyId, skip, limit);
     return sendSuccess(res, 200, 'Trips retrieved successfully', { trips, page, limit });
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to retrieve trips');
@@ -43,7 +43,7 @@ export const endTrip = async (req: AuthRequest, res: Response): Promise<any> => 
       return sendError(res, 400, error.details[0].message);
     }
 
-    const completedTrip = await tripService.endTrip(req.params.id, companyId, value.endLocation);
+    const completedTrip = await tripService.endTrip(req.params.id as string, companyId, value.endLocation);
     return sendSuccess(res, 200, 'Trip ended successfully', completedTrip);
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to end trip');
@@ -53,7 +53,7 @@ export const endTrip = async (req: AuthRequest, res: Response): Promise<any> => 
 export const getOngoingTrip = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const companyId = req.user.companyId;
-    const vehicleId = req.params.vehicleId;
+    const vehicleId = req.params.vehicleId as string;
     const trip = await tripService.getOngoingTrip(vehicleId, companyId);
     
     if (!trip) {

@@ -1,85 +1,106 @@
-import prisma from '../prisma';
+import pool from '../db';
+import crypto from 'crypto';
 
-export const getVehiclesByCompanyId = async (companyId: string, skip: number = 0, take: number = 10) => {
-  return prisma.vehicle.findMany({
-    where: { companyId },
-    skip,
-    take,
-    include: {
-      driver: { select: { id: true, name: true, contactInfo: true } },
-      gpsDevice: { select: { id: true, imei: true, lastSeen: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+export const getVehicles = async (companyId: string, skip?: number, limit?: number) => {
+  const res = await pool.query(`
+    SELECT v.*, 
+      json_build_object('id', d.id, 'name', d.name) as driver,
+      json_build_object('id', g.id, 'imei', g.imei) as "gpsDevice"
+    FROM "Vehicle" v
+    LEFT JOIN "Driver" d ON v."driverId" = d.id
+    LEFT JOIN "GpsDevice" g ON v."gpsDeviceId" = g.id
+    WHERE v."companyId" = $1 ORDER BY v."createdAt" DESC
+  `, [companyId]);
+  return res.rows;
 };
 
-export const getVehicleByIdAndCompanyId = async (vehicleId: string, companyId: string) => {
-  const vehicle = await prisma.vehicle.findFirst({
-    where: { id: vehicleId, companyId },
-    include: {
-      driver: { select: { id: true, name: true, contactInfo: true } },
-      gpsDevice: { select: { id: true, imei: true, lastSeen: true } },
-    },
-  });
-
-  if (!vehicle) throw new Error('Vehicle not found in your company');
-  return vehicle;
+export const getVehicleById = async (vehicleId: string, companyId: string) => {
+  const res = await pool.query(`
+    SELECT v.*, 
+      json_build_object('id', d.id, 'name', d.name) as driver,
+      json_build_object('id', g.id, 'imei', g.imei) as "gpsDevice"
+    FROM "Vehicle" v
+    LEFT JOIN "Driver" d ON v."driverId" = d.id
+    LEFT JOIN "GpsDevice" g ON v."gpsDeviceId" = g.id
+    WHERE v.id = $1 AND v."companyId" = $2
+  `, [vehicleId, companyId]);
+  if (res.rows.length === 0) {
+    throw new Error('Vehicle not found');
+  }
+  return res.rows[0];
 };
 
 export const createVehicle = async (companyId: string, data: any) => {
-  const existing = await prisma.vehicle.findUnique({ where: { vehicleNumber: data.vehicleNumber } });
-  if (existing) throw new Error('Vehicle number already exists');
-
-  // Verify that gpsDeviceId is unique globally if provided
-  if (data.gpsDeviceId) {
-    const existingDevice = await prisma.vehicle.findUnique({ where: { gpsDeviceId: data.gpsDeviceId } });
-    if (existingDevice) throw new Error('GPS Device is already assigned to another vehicle');
+  const existing = await pool.query('SELECT id FROM "Vehicle" WHERE "vehicleNumber" = $1', [data.vehicleNumber]);
+  if (existing.rows.length > 0) {
+    throw new Error('Vehicle with this number already exists');
   }
 
-  return prisma.vehicle.create({
-    data: {
-      companyId,
-      vehicleNumber: data.vehicleNumber,
-      type: data.type,
-      model: data.model,
-      driverId: data.driverId || null,
-      gpsDeviceId: data.gpsDeviceId || null,
-    },
-  });
+  if (data.gpsDeviceId) {
+    const existingDevice = await pool.query('SELECT id FROM "Vehicle" WHERE "gpsDeviceId" = $1', [data.gpsDeviceId]);
+    if (existingDevice.rows.length > 0) {
+      throw new Error('This GPS device is already assigned to another vehicle');
+    }
+  }
+
+  const id = crypto.randomUUID();
+  const res = await pool.query(
+    'INSERT INTO "Vehicle" (id, "companyId", "vehicleNumber", type, model, "driverId", "gpsDeviceId", "updatedAt") VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) RETURNING *',
+    [id, companyId, data.vehicleNumber, data.type, data.model, data.driverId || null, data.gpsDeviceId || null]
+  );
+  return res.rows[0];
 };
 
 export const updateVehicle = async (vehicleId: string, companyId: string, data: any) => {
-  const vehicle = await prisma.vehicle.findFirst({ where: { id: vehicleId, companyId } });
-  if (!vehicle) throw new Error('Vehicle not found in your company');
-
-  if (data.vehicleNumber && data.vehicleNumber !== vehicle.vehicleNumber) {
-    const existing = await prisma.vehicle.findUnique({ where: { vehicleNumber: data.vehicleNumber } });
-    if (existing) throw new Error('Vehicle number already exists');
+  const check = await pool.query('SELECT id FROM "Vehicle" WHERE id = $1 AND "companyId" = $2', [vehicleId, companyId]);
+  if (check.rows.length === 0) {
+    throw new Error('Vehicle not found');
   }
 
-  if (data.gpsDeviceId && data.gpsDeviceId !== vehicle.gpsDeviceId) {
-    const existingDevice = await prisma.vehicle.findUnique({ where: { gpsDeviceId: data.gpsDeviceId } });
-    if (existingDevice) throw new Error('GPS Device is already assigned to another vehicle');
+  if (data.vehicleNumber) {
+    const existing = await pool.query('SELECT id FROM "Vehicle" WHERE "vehicleNumber" = $1 AND id != $2', [data.vehicleNumber, vehicleId]);
+    if (existing.rows.length > 0) {
+      throw new Error('Vehicle with this number already exists');
+    }
   }
 
-  return prisma.vehicle.update({
-    where: { id: vehicleId },
-    data: {
-      vehicleNumber: data.vehicleNumber !== undefined ? data.vehicleNumber : vehicle.vehicleNumber,
-      type: data.type !== undefined ? data.type : vehicle.type,
-      model: data.model !== undefined ? data.model : vehicle.model,
-      driverId: data.driverId !== undefined ? data.driverId : vehicle.driverId,
-      gpsDeviceId: data.gpsDeviceId !== undefined ? data.gpsDeviceId : vehicle.gpsDeviceId,
-      status: data.status !== undefined ? data.status : vehicle.status,
-    },
-  });
+  if (data.gpsDeviceId) {
+    const existingDevice = await pool.query('SELECT id FROM "Vehicle" WHERE "gpsDeviceId" = $1 AND id != $2', [data.gpsDeviceId, vehicleId]);
+    if (existingDevice.rows.length > 0) {
+      throw new Error('This GPS device is already assigned to another vehicle');
+    }
+  }
+
+  const updates = [];
+  const values = [];
+  let paramIdx = 1;
+
+  if (data.vehicleNumber !== undefined) { updates.push(`"vehicleNumber" = $${paramIdx++}`); values.push(data.vehicleNumber); }
+  if (data.type !== undefined) { updates.push(`type = $${paramIdx++}`); values.push(data.type); }
+  if (data.model !== undefined) { updates.push(`model = $${paramIdx++}`); values.push(data.model); }
+  if (data.status !== undefined) { updates.push(`status = $${paramIdx++}`); values.push(data.status); }
+  if (data.driverId !== undefined) { updates.push(`"driverId" = $${paramIdx++}`); values.push(data.driverId); }
+  if (data.gpsDeviceId !== undefined) { updates.push(`"gpsDeviceId" = $${paramIdx++}`); values.push(data.gpsDeviceId); }
+
+  if (updates.length === 0) return getVehicleById(vehicleId, companyId);
+
+  updates.push(`"updatedAt" = NOW()`);
+  values.push(vehicleId);
+  values.push(companyId);
+
+  await pool.query(
+    `UPDATE "Vehicle" SET ${updates.join(', ')} WHERE id = $${paramIdx} AND "companyId" = $${paramIdx + 1}`,
+    values
+  );
+
+  return getVehicleById(vehicleId, companyId);
 };
 
 export const deleteVehicle = async (vehicleId: string, companyId: string) => {
-  const vehicle = await prisma.vehicle.findFirst({ where: { id: vehicleId, companyId } });
-  if (!vehicle) throw new Error('Vehicle not found in your company');
-
-  return prisma.vehicle.delete({
-    where: { id: vehicleId },
-  });
+  const check = await pool.query('SELECT id FROM "Vehicle" WHERE id = $1 AND "companyId" = $2', [vehicleId, companyId]);
+  if (check.rows.length === 0) {
+    throw new Error('Vehicle not found');
+  }
+  await pool.query('DELETE FROM "Vehicle" WHERE id = $1', [vehicleId]);
+  return { message: 'Vehicle deleted successfully' };
 };

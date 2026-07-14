@@ -38,7 +38,7 @@ import reportRoutes from './routes/report.routes';
 import dashboardRoutes from './routes/dashboard.routes';
 import { setupSwagger } from './swagger';
 
-setupSwagger(app);
+setupSwagger(app as any);
 
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/companies', companyRoutes);

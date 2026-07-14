@@ -11,7 +11,7 @@ export const getGeofences = async (req: AuthRequest, res: Response): Promise<any
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
 
-    const geofences = await geofenceService.getGeofencesByCompanyId(companyId, skip, limit);
+    const geofences = await geofenceService.getGeofences(companyId, skip, limit);
     return sendSuccess(res, 200, 'Geofences retrieved successfully', { geofences, page, limit });
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to retrieve geofences');
@@ -21,7 +21,7 @@ export const getGeofences = async (req: AuthRequest, res: Response): Promise<any
 export const getGeofence = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const companyId = req.user.companyId;
-    const geofence = await geofenceService.getGeofenceByIdAndCompanyId(req.params.id, companyId);
+    const geofence = await geofenceService.getGeofenceById(req.params.id as string, companyId);
     return sendSuccess(res, 200, 'Geofence retrieved successfully', geofence);
   } catch (error: any) {
     return sendError(res, 404, error.message || 'Geofence not found');
@@ -53,7 +53,7 @@ export const updateGeofence = async (req: AuthRequest, res: Response): Promise<a
       return sendError(res, 400, error.details[0].message);
     }
 
-    const updatedGeofence = await geofenceService.updateGeofence(req.params.id, companyId, value);
+    const updatedGeofence = await geofenceService.updateGeofence(req.params.id as string, companyId, value);
     return sendSuccess(res, 200, 'Geofence updated successfully', updatedGeofence);
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to update geofence');
@@ -63,7 +63,7 @@ export const updateGeofence = async (req: AuthRequest, res: Response): Promise<a
 export const deleteGeofence = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const companyId = req.user.companyId;
-    await geofenceService.deleteGeofence(req.params.id, companyId);
+    await geofenceService.deleteGeofence(req.params.id as string, companyId);
     return sendSuccess(res, 200, 'Geofence deleted successfully');
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to delete geofence');

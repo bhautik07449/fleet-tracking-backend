@@ -1,35 +1,22 @@
-import prisma from '../prisma';
-import { sendEmail } from '../utils/mailer';
+import pool from '../db';
 
-export const sendCriticalAlertEmail = async (companyId: string, alertData: any) => {
-  try {
-    // 1. Get the company owner email (or whoever handles alerts for the company)
-    const owner = await prisma.user.findFirst({
-      where: { companyId, role: 'COMPANY_OWNER', isActive: true },
-    });
-
-    if (!owner) {
-      console.warn(`[Notification Service] No active COMPANY_OWNER found for company ${companyId}`);
-      return;
-    }
-
-    // 2. Prepare the email content
-    const subject = `CRITICAL ALERT: ${alertData.type} - Vehicle ${alertData.vehicleNumber || alertData.vehicleId}`;
-    const html = `
-      <h3>Critical Fleet Alert</h3>
-      <p><strong>Alert Type:</strong> ${alertData.type}</p>
-      <p><strong>Vehicle ID:</strong> ${alertData.vehicleId}</p>
-      <p><strong>Message:</strong> ${alertData.message}</p>
-      <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
-      <br />
-      <p>Please log in to the Fleet Management Dashboard to resolve this alert.</p>
-    `;
-
-    // 3. Send email
-    await sendEmail(owner.email, subject, html);
-    
-    console.log(`[Notification Service] Critical alert email sent to ${owner.email}`);
-  } catch (error) {
-    console.error('[Notification Service] Failed to send alert email:', error);
+export const getUserNotifications = async (userId: string, companyId: string) => {
+  // Ensure user belongs to the requesting company (basic auth check)
+  const userCheck = await pool.query('SELECT id FROM "User" WHERE id = $1 AND "companyId" = $2', [userId, companyId]);
+  if (userCheck.rows.length === 0) {
+    throw new Error('User not found in this company');
   }
+
+  const res = await pool.query('SELECT * FROM "Notification" WHERE "userId" = $1 ORDER BY "createdAt" DESC', [userId]);
+  return res.rows;
+};
+
+export const markNotificationAsRead = async (notificationId: string, userId: string) => {
+  const check = await pool.query('SELECT id FROM "Notification" WHERE id = $1 AND "userId" = $2', [notificationId, userId]);
+  if (check.rows.length === 0) {
+    throw new Error('Notification not found');
+  }
+
+  const res = await pool.query('UPDATE "Notification" SET "isRead" = true WHERE id = $1 RETURNING *', [notificationId]);
+  return res.rows[0];
 };

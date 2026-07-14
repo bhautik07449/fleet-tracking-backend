@@ -9,7 +9,7 @@ const router = Router();
 router.use(authenticate);
 router.use(authorize(['COMPANY_OWNER', 'MANAGER']));
 
-router.get('/trips', reportController.getTripReport);
-router.get('/alerts', reportController.getAlertReport);
+router.get('/trips', reportController.generateTripReport);
+router.get('/alerts', reportController.generateAlertReport);
 
 export default router;

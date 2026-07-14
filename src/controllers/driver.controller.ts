@@ -11,7 +11,7 @@ export const getDrivers = async (req: AuthRequest, res: Response): Promise<any> 
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
 
-    const drivers = await driverService.getDriversByCompanyId(companyId, skip, limit);
+    const drivers = await driverService.getDrivers(companyId, skip, limit);
     return sendSuccess(res, 200, 'Drivers retrieved successfully', { drivers, page, limit });
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to retrieve drivers');
@@ -21,7 +21,7 @@ export const getDrivers = async (req: AuthRequest, res: Response): Promise<any> 
 export const getDriver = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const companyId = req.user.companyId;
-    const driver = await driverService.getDriverByIdAndCompanyId(req.params.id, companyId);
+    const driver = await driverService.getDriverById(req.params.id as string, companyId);
     return sendSuccess(res, 200, 'Driver retrieved successfully', driver);
   } catch (error: any) {
     return sendError(res, 404, error.message || 'Driver not found');
@@ -53,7 +53,7 @@ export const updateDriver = async (req: AuthRequest, res: Response): Promise<any
       return sendError(res, 400, error.details[0].message);
     }
 
-    const updatedDriver = await driverService.updateDriver(req.params.id, companyId, value);
+    const updatedDriver = await driverService.updateDriver(req.params.id as string, companyId, value);
     return sendSuccess(res, 200, 'Driver updated successfully', updatedDriver);
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to update driver');
@@ -63,7 +63,7 @@ export const updateDriver = async (req: AuthRequest, res: Response): Promise<any
 export const deleteDriver = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const companyId = req.user.companyId;
-    await driverService.deleteDriver(req.params.id, companyId);
+    await driverService.deleteDriver(req.params.id as string, companyId);
     return sendSuccess(res, 200, 'Driver deleted successfully');
   } catch (error: any) {
     return sendError(res, 400, error.message || 'Failed to delete driver');
