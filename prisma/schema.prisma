@@ -1,0 +1,216 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum RoleEnum {
+  SUPER_ADMIN
+  COMPANY_OWNER
+  MANAGER
+  DRIVER
+}
+
+enum VehicleStatus {
+  RUNNING
+  STOPPED
+  OFFLINE
+}
+
+enum DeviceStatus {
+  ACTIVE
+  INACTIVE
+  FAULTY
+}
+
+enum TripStatus {
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+enum GeofenceType {
+  POLYGON
+  CIRCLE
+}
+
+model Company {
+  id            String         @id @default(uuid())
+  name          String
+  email         String         @unique
+  address       String?
+  phone         String?
+  settings      Json?          // Stores company specific settings
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  users         User[]
+  vehicles      Vehicle[]
+  drivers       Driver[]
+  gpsDevices    GpsDevice[]
+  geofences     Geofence[]
+  subscriptions Subscription[]
+  activityLogs  ActivityLog[]
+}
+
+model User {
+  id            String        @id @default(uuid())
+  companyId     String?       // Nullable for Super Admin
+  name          String
+  email         String        @unique
+  password      String
+  role          RoleEnum      @default(MANAGER)
+  isActive      Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  company       Company?      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  notifications Notification[]
+  activityLogs  ActivityLog[]
+}
+
+model Driver {
+  id            String     @id @default(uuid())
+  companyId     String
+  name          String
+  licenseNumber String     @unique
+  contactInfo   String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  company       Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vehicles      Vehicle[]
+}
+
+model GpsDevice {
+  id            String       @id @default(uuid())
+  companyId     String
+  imei          String       @unique
+  deviceModel   String?
+  simNumber     String?
+  status        DeviceStatus @default(ACTIVE)
+  lastSeen      DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  company       Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  vehicle       Vehicle?
+}
+
+model Vehicle {
+  id            String        @id @default(uuid())
+  companyId     String
+  driverId      String?
+  gpsDeviceId   String?       @unique
+  vehicleNumber String        @unique
+  type          String?
+  model         String?
+  status        VehicleStatus @default(OFFLINE)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  driver        Driver?       @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  gpsDevice     GpsDevice?    @relation(fields: [gpsDeviceId], references: [id], onDelete: SetNull)
+  
+  locations     VehicleLocation[]
+  trips         Trip[]
+  alerts        Alert[]
+}
+
+model VehicleLocation {
+  id             String   @id @default(uuid())
+  vehicleId      String
+  latitude       Float
+  longitude      Float
+  speed          Float    @default(0)
+  heading        Float    @default(0)
+  altitude       Float    @default(0)
+  battery        Float?
+  ignitionStatus Boolean  @default(false)
+  timestamp      DateTime
+
+  vehicle        Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, timestamp(sort: Desc)])
+}
+
+model Trip {
+  id            String     @id @default(uuid())
+  vehicleId     String
+  startLocation Json?      // Latitude, Longitude and Address
+  endLocation   Json?
+  distance      Float      @default(0) // In kilometers
+  duration      Int        @default(0) // In seconds
+  status        TripStatus @default(ONGOING)
+  startTime     DateTime   @default(now())
+  endTime       DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  vehicle       Vehicle    @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+}
+
+model Alert {
+  id            String   @id @default(uuid())
+  vehicleId     String
+  type          String   // OVERSPEED, ENGINE_ON, ENGINE_OFF, LOW_BATTERY, SOS, OFFLINE, GEOFENCE_ENTRY, GEOFENCE_EXIT
+  message       String
+  isRead        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  vehicle       Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+}
+
+model Geofence {
+  id            String       @id @default(uuid())
+  companyId     String
+  name          String
+  type          GeofenceType
+  coordinates   Json         // Array of lat/lng objects
+  radius        Float?       // Only for CIRCLE type
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  company       Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id            String   @id @default(uuid())
+  userId        String
+  title         String
+  message       String
+  isRead        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Subscription {
+  id            String   @id @default(uuid())
+  companyId     String
+  plan          String   // BASIC, PRO, ENTERPRISE
+  status        String   // ACTIVE, EXPIRED, CANCELLED
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model ActivityLog {
+  id            String   @id @default(uuid())
+  userId        String?
+  companyId     String?
+  action        String
+  details       Json?
+  createdAt     DateTime @default(now())
+
+  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  company       Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+}

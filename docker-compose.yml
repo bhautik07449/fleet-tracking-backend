@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: fleet_tracking_app
+    restart: unless-stopped
+    ports:
+      - "3000:3000" # HTTP API & Socket.io
+      - "4000:4000" # TCP GPS Server
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - TCP_PORT=4000
+      # Reference the database service defined below
+      - DATABASE_URL=postgresql://fleet_user:fleet_pass@postgres:5432/fleet_db?schema=public
+      - JWT_SECRET=super_secret_jwt_key_for_production
+      - JWT_EXPIRES_IN=1h
+      - JWT_REFRESH_SECRET=super_secret_refresh_key_for_production
+      - JWT_REFRESH_EXPIRES_IN=7d
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: fleet_tracking_db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=fleet_user
+      - POSTGRES_PASSWORD=fleet_pass
+      - POSTGRES_DB=fleet_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fleet_user -d fleet_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
