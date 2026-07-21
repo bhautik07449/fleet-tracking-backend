@@ -1,5 +1,6 @@
 import pool from '../db';
 import crypto from 'crypto';
+import { getIO } from '../socket/index';
 
 export const processLocationUpdate = async (data: any) => {
   const client = await pool.connect();
@@ -42,22 +43,41 @@ export const processLocationUpdate = async (data: any) => {
       // Would emit socket event for alert here in production
     }
 
-    // 4. Update Device & Vehicle Status
+    // 4. Update Device, Vehicle & Driver Status
     await client.query('UPDATE "GpsDevice" SET "lastSeen" = NOW(), status = $1, "updatedAt" = NOW() WHERE id = $2', ['ACTIVE', device.id]);
     
     const vStatus = data.speed > 0 ? 'RUNNING' : 'STOPPED';
     await client.query('UPDATE "Vehicle" SET status = $1, "updatedAt" = NOW() WHERE id = $2', [vStatus, vehicle.id]);
 
+    // Check if vehicle has a driver and update their status
+    const driverRes = await client.query('SELECT "driverId" FROM "Vehicle" WHERE id = $1', [vehicle.id]);
+    if (driverRes.rows.length > 0 && driverRes.rows[0].driverId) {
+      const driverId = driverRes.rows[0].driverId;
+      const isDriverActive = data.speed > 0;
+      await client.query('UPDATE "Driver" SET "isActive" = $1, "updatedAt" = NOW() WHERE id = $2', [isDriverActive, driverId]);
+    }
+
     await client.query('COMMIT');
 
-    return {
+    const result = {
       vehicleId: vehicle.id,
       companyId: device.companyId,
       latitude: data.latitude,
       longitude: data.longitude,
       speed: data.speed,
+      heading: data.heading,
       timestamp: data.timestamp
     };
+
+    // Broadcast real-time update to connected frontend clients
+    try {
+      const io = getIO();
+      io.to(device.companyId).emit('vehicle-location-update', result);
+    } catch (e) {
+      // Socket might not be ready yet; safe to ignore
+    }
+
+    return result;
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

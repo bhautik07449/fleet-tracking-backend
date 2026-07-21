@@ -9,16 +9,21 @@ export const startTcpServer = () => {
     console.log(`[TCP] GPS Device connected: ${socket.remoteAddress}:${socket.remotePort}`);
 
     socket.on('data', async (data) => {
-      const parsedData = parseRawData(data as Buffer);
-      if (parsedData) {
-        // Step 12: Store this data to the database
-        await processLocationUpdate(parsedData);
-      } else {
-        console.log(`[TCP] Unrecognized data from ${socket.remoteAddress}:`, data.toString('hex'));
+      try {
+        const parsedData = parseRawData(data as Buffer);
+        if (parsedData) {
+          await processLocationUpdate(parsedData);
+        } else {
+          console.log(`[TCP] Unrecognized data from ${socket.remoteAddress}:`, data.toString('hex'));
+        }
+        
+        // Acknowledge receipt
+        socket.write('ACK\n');
+      } catch (error: any) {
+        console.error(`[TCP] Error processing data: ${error.message}`);
+        require('fs').appendFileSync('tcp-error.log', error.stack + '\n\n');
+        socket.write('ERROR\n');
       }
-      
-      // Acknowledge receipt
-      socket.write('ACK\n');
     });
 
     socket.on('end', () => {

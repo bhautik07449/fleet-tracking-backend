@@ -5,10 +5,18 @@ export const getVehicles = async (companyId: string, skip?: number, limit?: numb
   const res = await pool.query(`
     SELECT v.*, 
       json_build_object('id', d.id, 'name', d.name) as driver,
-      json_build_object('id', g.id, 'imei', g.imei) as "gpsDevice"
+      json_build_object('id', g.id, 'imei', g.imei) as "gpsDevice",
+      loc.latitude as "lastLatitude",
+      loc.longitude as "lastLongitude",
+      loc.speed as "lastSpeed"
     FROM "Vehicle" v
     LEFT JOIN "Driver" d ON v."driverId" = d.id
     LEFT JOIN "GpsDevice" g ON v."gpsDeviceId" = g.id
+    LEFT JOIN LATERAL (
+      SELECT latitude, longitude, speed FROM "VehicleLocation"
+      WHERE "vehicleId" = v.id
+      ORDER BY timestamp DESC LIMIT 1
+    ) loc ON true
     WHERE v."companyId" = $1 ORDER BY v."createdAt" DESC
   `, [companyId]);
   return res.rows;

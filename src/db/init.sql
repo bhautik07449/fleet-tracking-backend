@@ -35,6 +35,7 @@ CREATE TABLE "Driver" (
   "name" TEXT NOT NULL,
   "licenseNumber" TEXT UNIQUE NOT NULL,
   "contactInfo" TEXT,
+  "isActive" BOOLEAN NOT NULL DEFAULT FALSE,
   "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
   "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
 );

@@ -25,20 +25,26 @@ export const parseRawData = (data: Buffer): ParsedGPSData | null => {
     // Ignore empty keep-alives
     if (!rawString) return null;
 
-    // For demonstration, we could also accept JSON. Let's try JSON first.
-    if (rawString.startsWith('{') && rawString.endsWith('}')) {
-      const json = JSON.parse(rawString);
-      return {
-        imei: String(json.imei),
-        latitude: parseFloat(json.latitude),
-        longitude: parseFloat(json.longitude),
-        speed: parseFloat(json.speed) || 0,
-        heading: parseFloat(json.heading) || 0,
-        altitude: parseFloat(json.altitude) || 0,
-        battery: json.battery ? parseFloat(json.battery) : undefined,
-        ignitionStatus: Boolean(json.ignitionStatus),
-        timestamp: json.timestamp ? new Date(json.timestamp) : new Date(),
-      };
+    // Try JSON parsing first
+    try {
+      // Remove any weird trailing characters just in case
+      const jsonStr = rawString.substring(rawString.indexOf('{'), rawString.lastIndexOf('}') + 1);
+      if (jsonStr) {
+        const json = JSON.parse(jsonStr);
+        return {
+          imei: String(json.imei),
+          latitude: parseFloat(json.latitude),
+          longitude: parseFloat(json.longitude),
+          speed: parseFloat(json.speed) || 0,
+          heading: parseFloat(json.heading) || 0,
+          altitude: parseFloat(json.altitude) || 0,
+          battery: json.battery ? parseFloat(json.battery) : undefined,
+          ignitionStatus: Boolean(json.ignitionStatus),
+          timestamp: json.timestamp ? new Date(json.timestamp) : new Date(),
+        };
+      }
+    } catch (e) {
+      // Not JSON, continue to fallback
     }
 
     // Fallback to comma-separated format

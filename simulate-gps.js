@@ -10,9 +10,9 @@ const client = new net.Socket();
 client.connect(PORT, HOST, () => {
   console.log(`Connected to GPS TCP Server at ${HOST}:${PORT}`);
   
-  // Starting coordinates (New York City for example)
-  let lat = 40.7128;
-  let lng = -74.0060;
+  // Starting coordinates
+  let lat = 42.567902;
+  let lng = 16.909683;
   
   setInterval(() => {
     // Move slightly
