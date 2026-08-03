@@ -73,6 +73,7 @@ export const processLocationUpdate = async (data: any) => {
     try {
       const io = getIO();
       io.to(device.companyId).emit('vehicle-location-update', result);
+      io.to(device.companyId).emit('device-online', { imei: data.imei, status: 'ACTIVE', timestamp: new Date().toISOString() });
     } catch (e) {
       // Socket might not be ready yet; safe to ignore
     }
@@ -92,9 +93,12 @@ export const touchDeviceLastSeen = async (imei: string) => {
     const res = await client.query('UPDATE "GpsDevice" SET "lastSeen" = NOW(), status = $1, "updatedAt" = NOW() WHERE imei = $2 RETURNING id, "companyId"', ['ACTIVE', imei]);
     if (res.rows.length > 0) {
       const device = res.rows[0];
+      // If the mapped vehicle was OFFLINE, change its status to STOPPED (since tracker is communicating again!)
+      await client.query(`UPDATE "Vehicle" SET status = 'STOPPED', "updatedAt" = NOW() WHERE "gpsDeviceId" = $1 AND status = 'OFFLINE'`, [device.id]);
       try {
         const io = getIO();
-        io.to(device.companyId).emit('device-online', { imei, status: 'ONLINE', timestamp: new Date().toISOString() });
+        io.to(device.companyId).emit('device-online', { imei, status: 'ACTIVE', timestamp: new Date().toISOString() });
+        io.to(device.companyId).emit('vehicle-location-update', { imei, timestamp: new Date().toISOString() });
       } catch (e) {}
     }
   } catch (error) {
