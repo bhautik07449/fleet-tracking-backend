@@ -2,6 +2,7 @@ import http from 'http';
 import app from './app';
 import { initSocketServer } from './socket';
 import { startTcpServer } from './tcp/server';
+import { startOfflineChecker } from './jobs/offlineChecker';
 
 const PORT = process.env.PORT || 3000;
 
@@ -16,3 +17,6 @@ server.listen(PORT, () => {
 
 // Start the TCP Server for GPS devices
 startTcpServer();
+
+// Start the Background Job for offline detection
+startOfflineChecker();
