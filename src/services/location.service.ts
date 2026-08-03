@@ -85,3 +85,21 @@ export const processLocationUpdate = async (data: any) => {
     client.release();
   }
 };
+
+export const touchDeviceLastSeen = async (imei: string) => {
+  const client = await pool.connect();
+  try {
+    const res = await client.query('UPDATE "GpsDevice" SET "lastSeen" = NOW(), status = $1, "updatedAt" = NOW() WHERE imei = $2 RETURNING id, "companyId"', ['ACTIVE', imei]);
+    if (res.rows.length > 0) {
+      const device = res.rows[0];
+      try {
+        const io = getIO();
+        io.to(device.companyId).emit('device-online', { imei, status: 'ONLINE', timestamp: new Date().toISOString() });
+      } catch (e) {}
+    }
+  } catch (error) {
+    console.error(`[DB] Failed to update lastSeen for IMEI ${imei}:`, error);
+  } finally {
+    client.release();
+  }
+};

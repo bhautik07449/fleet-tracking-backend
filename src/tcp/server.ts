@@ -1,6 +1,6 @@
 import net from 'net';
 import { parseRawData, ParsedGPSData } from '../gps/parser';
-import { processLocationUpdate } from '../services/location.service';
+import { processLocationUpdate, touchDeviceLastSeen } from '../services/location.service';
 const Gt06 = require('gt06');
 
 const TCP_PORT = process.env.TCP_PORT ? parseInt(process.env.TCP_PORT) : 4000;
@@ -14,38 +14,53 @@ export const startTcpServer = () => {
     const parser = new Gt06();
 
     socket.on('data', async (data) => {
-      let isGt06 = false;
+      // Check if it is a binary GT06/PT06 packet (starts with 0x78 0x78 or 0x79 0x79)
+      const isBinaryGps = data.length >= 2 && ((data[0] === 0x78 && data[1] === 0x78) || (data[0] === 0x79 && data[1] === 0x79));
 
-      // First, try parsing with GT06
-      try {
-        if (data.length >= 2 && data[0] === 0x78 && data[1] === 0x78) {
-          parser.parse(data);
-          isGt06 = true;
+      if (isBinaryGps) {
+        // Try parsing standard packets (0x01, 0x12, 0x13, 0x16) with the gt06 library
+        try {
+          if (data[0] === 0x78 && data[1] === 0x78) {
+            parser.parse(data);
+          } else {
+            // 0x7979 are usually info/ICCID reporting packets from PT06
+            const imei = connectedDevices.get(socket);
+            if (imei) touchDeviceLastSeen(imei);
+            console.log(`[TCP] PT06 Extended Info Packet received (${data.length} bytes)`);
+            return;
+          }
+        } catch (e: any) {
+          // Handle extended PT06 packets (like 0x24 / decimal 36 or 0x26 / decimal 38)
+          const imei = connectedDevices.get(socket);
+          if (imei) touchDeviceLastSeen(imei);
+
+          if (e.event && (e.event.number === 36 || e.event.number === 38)) {
+            console.log(`[TCP] PT06 LBS/Extended Location packet received (Protocol: 0x${e.event.number.toString(16)})`);
+          } else {
+            console.log(`[TCP] Unhandled GT06 protocol Packet (Header: ${data[3] ? '0x' + data[3].toString(16) : 'unknown'})`);
+          }
+          return;
         }
-      } catch (e) {
-        // Not a valid GT06 packet or parse error
-        console.error(`[TCP] GT06 Parse Error:`, e);
-      }
 
-      if (isGt06) {
-        // Send ACK back if requested
+        // Send binary ACK back if requested by the tracker
         if (parser.expectsResponse && parser.responseMsg) {
           socket.write(parser.responseMsg);
         }
 
         for (const msg of parser.msgBuffer) {
-          // 0x01: Login
+          // 0x01: Login Packet
           if (msg.event && msg.event.number === 0x01) {
             const imei = String(msg.imei);
             connectedDevices.set(socket, imei);
-            console.log(`[TCP] GT06 Device Logged in with IMEI: ${imei}`);
+            console.log(`[TCP] 🎉 GT06 Device Logged in successfully! IMEI: ${imei}`);
+            touchDeviceLastSeen(imei);
           }
           
-          // 0x12: Location or 0x16: Alarm (has location)
+          // 0x12: Location or 0x16: Alarm
           if (msg.event && (msg.event.number === 0x12 || msg.event.number === 0x16)) {
             const imei = connectedDevices.get(socket);
             if (!imei) {
-              console.warn(`[TCP] Location received but device not logged in.`);
+              console.warn(`[TCP] Location received but device has not completed login.`);
               continue;
             }
 
@@ -53,17 +68,18 @@ export const startTcpServer = () => {
               imei: imei,
               latitude: msg.lat,
               longitude: msg.lon,
-              speed: msg.speed,
-              heading: msg.course,
-              altitude: 0, // Not provided by gt06 parser natively
-              ignitionStatus: false, // Defaulting to false, handled by 0x13 in advanced use cases
+              speed: msg.speed || 0,
+              heading: msg.course || 0,
+              altitude: 0,
+              ignitionStatus: false,
               timestamp: msg.fixTime ? new Date(msg.fixTime) : new Date()
             };
 
             try {
               await processLocationUpdate(parsedData);
+              console.log(`[TCP] Location updated for IMEI ${imei}: (${msg.lat}, ${msg.lon}) - Speed: ${msg.speed} km/h`);
             } catch (error: any) {
-              console.error(`[TCP] Error processing GT06 location update: ${error.message}`);
+              console.error(`[TCP] Error writing location to DB: ${error.message}`);
             }
           }
         }
@@ -72,20 +88,23 @@ export const startTcpServer = () => {
         return;
       }
 
-      // Fallback to text/JSON parser (for simulate-gps.js)
+      // If not a binary packet, check if it's an internet scanner / HTTP bot (common on open VPS ports)
+      if (data.toString().startsWith('GET') || data.toString().startsWith('POST')) {
+        socket.end();
+        return;
+      }
+
+      // Fallback to text/JSON parser (for simulate-gps.js testing script)
       try {
         const parsedData = parseRawData(data as Buffer);
         if (parsedData) {
           await processLocationUpdate(parsedData);
+          socket.write('ACK\n');
         } else {
-          console.log(`[TCP] Unrecognized data from ${socket.remoteAddress}:`, data.toString('hex'));
+          console.log(`[TCP] Unrecognized text data from ${socket.remoteAddress}:`, data.toString('hex'));
         }
-        
-        // Acknowledge receipt
-        socket.write('ACK\n');
       } catch (error: any) {
-        console.error(`[TCP] Error processing data: ${error.message}`);
-        require('fs').appendFileSync('tcp-error.log', error.stack + '\n\n');
+        console.error(`[TCP] Error processing text data: ${error.message}`);
         socket.write('ERROR\n');
       }
     });
