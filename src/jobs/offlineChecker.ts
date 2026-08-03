@@ -4,42 +4,56 @@ import { getIO } from '../socket/index';
 export const startOfflineChecker = () => {
   console.log('[JOBS] Starting Offline Checker Job...');
   
-  // Run every 60 seconds (60000 ms)
+  // Run every 30 seconds (30000 ms)
   setInterval(async () => {
     const client = await pool.connect();
     
     try {
       await client.query('BEGIN');
       
-      // Find all vehicles that are currently RUNNING or STOPPED, 
-      // but their GPS device hasn't been seen in over 5 minutes.
-      const query = `
-        SELECT v.id as "vehicleId", v."companyId", d.imei 
-        FROM "Vehicle" v
-        JOIN "GpsDevice" d ON v."gpsDeviceId" = d.id
-        WHERE v.status IN ('RUNNING', 'STOPPED') 
-        AND (d."lastSeen" < NOW() - INTERVAL '5 minutes' OR d."lastSeen" IS NULL)
+      // 1. Find and update all GPS Devices that haven't pinged in 2 minutes
+      const deviceQuery = `
+        UPDATE "GpsDevice" 
+        SET status = 'INACTIVE', "updatedAt" = NOW() 
+        WHERE status = 'ACTIVE' 
+        AND ("lastSeen" < NOW() - INTERVAL '2 minutes' OR "lastSeen" IS NULL)
+        RETURNING imei, "companyId", id
       `;
-      
-      const { rows } = await client.query(query);
-      
-      if (rows.length > 0) {
-        console.log(`[JOBS] Found ${rows.length} unresponsive vehicles. Marking as OFFLINE.`);
-        
-        for (const row of rows) {
-          // Update Vehicle Status
-          await client.query(`UPDATE "Vehicle" SET status = 'OFFLINE', "updatedAt" = NOW() WHERE id = $1`, [row.vehicleId]);
-          
-          // Update GPS Device Status to INACTIVE
-          await client.query(`UPDATE "GpsDevice" SET status = 'INACTIVE', "updatedAt" = NOW() WHERE imei = $1`, [row.imei]);
-          
-          // Optionally update Driver Status
-          await client.query(`
-            UPDATE "Driver" SET "isActive" = FALSE, "updatedAt" = NOW() 
-            WHERE id = (SELECT "driverId" FROM "Vehicle" WHERE id = $1)
-          `, [row.vehicleId]);
-          
-          // Broadcast offline event to frontend
+      const devRes = await client.query(deviceQuery);
+
+      if (devRes.rows.length > 0) {
+        console.log(`[JOBS] Marked ${devRes.rows.length} unresponsive GPS devices as INACTIVE/OFFLINE.`);
+        for (const dev of devRes.rows) {
+          try {
+            const io = getIO();
+            io.to(dev.companyId).emit('device-offline', {
+              imei: dev.imei,
+              status: 'INACTIVE',
+              timestamp: new Date().toISOString()
+            });
+          } catch (e) {}
+        }
+      }
+
+      // 2. Find and update all Vehicles whose mapped GpsDevice is INACTIVE or missing
+      const vehicleQuery = `
+        UPDATE "Vehicle" v
+        SET status = 'OFFLINE', "updatedAt" = NOW()
+        WHERE v.status != 'OFFLINE'
+        AND (
+          v."gpsDeviceId" IS NULL OR 
+          v."gpsDeviceId" IN (SELECT id FROM "GpsDevice" WHERE status = 'INACTIVE')
+        )
+        RETURNING v.id as "vehicleId", v."companyId", v."driverId"
+      `;
+      const vehRes = await client.query(vehicleQuery);
+
+      if (vehRes.rows.length > 0) {
+        console.log(`[JOBS] Marked ${vehRes.rows.length} vehicles as OFFLINE.`);
+        for (const row of vehRes.rows) {
+          if (row.driverId) {
+            await client.query(`UPDATE "Driver" SET "isActive" = FALSE, "updatedAt" = NOW() WHERE id = $1`, [row.driverId]);
+          }
           try {
             const io = getIO();
             io.to(row.companyId).emit('vehicle-offline', {
@@ -47,14 +61,7 @@ export const startOfflineChecker = () => {
               status: 'OFFLINE',
               timestamp: new Date().toISOString()
             });
-            io.to(row.companyId).emit('device-offline', {
-              imei: row.imei,
-              status: 'INACTIVE',
-              timestamp: new Date().toISOString()
-            });
-          } catch (e) {
-            // Ignore if socket not ready
-          }
+          } catch (e) {}
         }
       }
       
@@ -65,5 +72,5 @@ export const startOfflineChecker = () => {
     } finally {
       client.release();
     }
-  }, 60000); // 1 minute
+  }, 30000); // 30 seconds
 };

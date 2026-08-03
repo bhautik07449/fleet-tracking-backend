@@ -2,6 +2,11 @@ import pool from '../db';
 import crypto from 'crypto';
 
 export const getGpsDevices = async (companyId: string, skip?: number, limit?: number) => {
+  // Ensure devices that haven't pinged in 2 minutes (or have NULL lastSeen) are marked INACTIVE
+  await pool.query(
+    `UPDATE "GpsDevice" SET status = 'INACTIVE', "updatedAt" = NOW() WHERE "companyId" = $1 AND status = 'ACTIVE' AND ("lastSeen" < NOW() - INTERVAL '2 minutes' OR "lastSeen" IS NULL)`,
+    [companyId]
+  );
   const res = await pool.query('SELECT * FROM "GpsDevice" WHERE "companyId" = $1 ORDER BY "createdAt" DESC', [companyId]);
   return res.rows;
 };
@@ -22,8 +27,8 @@ export const createGpsDevice = async (companyId: string, data: any) => {
 
   const id = crypto.randomUUID();
   const res = await pool.query(
-    'INSERT INTO "GpsDevice" (id, "companyId", imei, "deviceModel", "simNumber", "updatedAt") VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *',
-    [id, companyId, data.imei, data.deviceModel, data.simNumber]
+    'INSERT INTO "GpsDevice" (id, "companyId", imei, "deviceModel", "simNumber", status, "updatedAt") VALUES ($1, $2, $3, $4, $5, $6, NOW()) RETURNING *',
+    [id, companyId, data.imei, data.deviceModel, data.simNumber, 'INACTIVE']
   );
   return res.rows[0];
 };
