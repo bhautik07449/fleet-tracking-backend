@@ -49,13 +49,8 @@ export const processLocationUpdate = async (data: any) => {
     const vStatus = data.speed > 0 ? 'RUNNING' : 'STOPPED';
     await client.query('UPDATE "Vehicle" SET status = $1, "updatedAt" = NOW() WHERE id = $2', [vStatus, vehicle.id]);
 
-    // Check if vehicle has a driver and update their status
-    const driverRes = await client.query('SELECT "driverId" FROM "Vehicle" WHERE id = $1', [vehicle.id]);
-    if (driverRes.rows.length > 0 && driverRes.rows[0].driverId) {
-      const driverId = driverRes.rows[0].driverId;
-      const isDriverActive = data.speed > 0;
-      await client.query('UPDATE "Driver" SET "isActive" = $1, "updatedAt" = NOW() WHERE id = $2', [isDriverActive, driverId]);
-    }
+    // Check if vehicle has a driver and update their status to ACTIVE when GPS is communicating
+    await client.query('UPDATE "Driver" SET "isActive" = TRUE, "updatedAt" = NOW() WHERE id = (SELECT "driverId" FROM "Vehicle" WHERE id = $1)', [vehicle.id]);
 
     await client.query('COMMIT');
 
@@ -93,8 +88,9 @@ export const touchDeviceLastSeen = async (imei: string) => {
     const res = await client.query('UPDATE "GpsDevice" SET "lastSeen" = NOW(), status = $1, "updatedAt" = NOW() WHERE imei = $2 RETURNING id, "companyId"', ['ACTIVE', imei]);
     if (res.rows.length > 0) {
       const device = res.rows[0];
-      // If the mapped vehicle was OFFLINE, change its status to STOPPED (since tracker is communicating again!)
+      // If the mapped vehicle was OFFLINE, change its status to STOPPED and awaken assigned driver
       await client.query(`UPDATE "Vehicle" SET status = 'STOPPED', "updatedAt" = NOW() WHERE "gpsDeviceId" = $1 AND status = 'OFFLINE'`, [device.id]);
+      await client.query(`UPDATE "Driver" SET "isActive" = TRUE, "updatedAt" = NOW() WHERE id = (SELECT "driverId" FROM "Vehicle" WHERE "gpsDeviceId" = $1)`, [device.id]);
       try {
         const io = getIO();
         io.to(device.companyId).emit('device-online', { imei, status: 'ACTIVE', timestamp: new Date().toISOString() });
@@ -119,7 +115,8 @@ export const markDeviceOffline = async (imei: string) => {
     if (res.rows.length > 0) {
       const device = res.rows[0];
       
-      // Also set any mapped Vehicle to OFFLINE
+      // Also set any mapped Vehicle to OFFLINE and assigned Driver to INACTIVE
+      await client.query(`UPDATE "Driver" SET "isActive" = FALSE, "updatedAt" = NOW() WHERE id = (SELECT "driverId" FROM "Vehicle" WHERE "gpsDeviceId" = $1)`, [device.id]);
       const vRes = await client.query('UPDATE "Vehicle" SET status = $1, "updatedAt" = NOW() WHERE "gpsDeviceId" = $2 RETURNING id', ['OFFLINE', device.id]);
       
       await client.query('COMMIT');
@@ -132,7 +129,7 @@ export const markDeviceOffline = async (imei: string) => {
           io.to(device.companyId).emit('vehicle-offline', { vehicleId: vRes.rows[0].id, status: 'OFFLINE', timestamp: new Date().toISOString() });
         }
       } catch (e) {}
-      console.log(`[TCP] Marked IMEI ${imei} and associated vehicle as OFFLINE.`);
+      console.log(`[TCP] Marked IMEI ${imei}, associated vehicle and driver as OFFLINE.`);
     } else {
       await client.query('ROLLBACK');
     }
