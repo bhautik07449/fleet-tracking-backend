@@ -13,7 +13,8 @@ export const startTcpServer = () => {
     console.log(`[TCP] GPS Device connected: ${socket.remoteAddress}:${socket.remotePort}`);
     const parser = new Gt06();
 
-    socket.on('data', async (data) => {
+    socket.on('data', async (rawData) => {
+      const data: Buffer = Buffer.isBuffer(rawData) ? rawData : Buffer.from(rawData);
       // Check if it is a binary GT06/PT06 packet (starts with 0x78 0x78 or 0x79 0x79)
       const isBinaryGps = data.length >= 2 && ((data[0] === 0x78 && data[1] === 0x78) || (data[0] === 0x79 && data[1] === 0x79));
 
