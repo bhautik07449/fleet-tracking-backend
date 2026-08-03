@@ -103,3 +103,39 @@ export const touchDeviceLastSeen = async (imei: string) => {
     client.release();
   }
 };
+
+export const markDeviceOffline = async (imei: string) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    // Mark GPS Device as INACTIVE (Offline)
+    const res = await client.query('UPDATE "GpsDevice" SET status = $1, "updatedAt" = NOW() WHERE imei = $2 RETURNING id, "companyId"', ['INACTIVE', imei]);
+    
+    if (res.rows.length > 0) {
+      const device = res.rows[0];
+      
+      // Also set any mapped Vehicle to OFFLINE
+      const vRes = await client.query('UPDATE "Vehicle" SET status = $1, "updatedAt" = NOW() WHERE "gpsDeviceId" = $2 RETURNING id', ['OFFLINE', device.id]);
+      
+      await client.query('COMMIT');
+
+      // Broadcast instant offline events to Frontend
+      try {
+        const io = getIO();
+        io.to(device.companyId).emit('device-offline', { imei, status: 'INACTIVE', timestamp: new Date().toISOString() });
+        if (vRes.rows.length > 0) {
+          io.to(device.companyId).emit('vehicle-offline', { vehicleId: vRes.rows[0].id, status: 'OFFLINE', timestamp: new Date().toISOString() });
+        }
+      } catch (e) {}
+      console.log(`[TCP] Marked IMEI ${imei} and associated vehicle as OFFLINE.`);
+    } else {
+      await client.query('ROLLBACK');
+    }
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error(`[DB] Failed to set device offline for IMEI ${imei}:`, error);
+  } finally {
+    client.release();
+  }
+};

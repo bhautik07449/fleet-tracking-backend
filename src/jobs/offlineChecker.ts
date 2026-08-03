@@ -30,6 +30,9 @@ export const startOfflineChecker = () => {
           // Update Vehicle Status
           await client.query(`UPDATE "Vehicle" SET status = 'OFFLINE', "updatedAt" = NOW() WHERE id = $1`, [row.vehicleId]);
           
+          // Update GPS Device Status to INACTIVE
+          await client.query(`UPDATE "GpsDevice" SET status = 'INACTIVE', "updatedAt" = NOW() WHERE imei = $1`, [row.imei]);
+          
           // Optionally update Driver Status
           await client.query(`
             UPDATE "Driver" SET "isActive" = FALSE, "updatedAt" = NOW() 
@@ -42,6 +45,11 @@ export const startOfflineChecker = () => {
             io.to(row.companyId).emit('vehicle-offline', {
               vehicleId: row.vehicleId,
               status: 'OFFLINE',
+              timestamp: new Date().toISOString()
+            });
+            io.to(row.companyId).emit('device-offline', {
+              imei: row.imei,
+              status: 'INACTIVE',
               timestamp: new Date().toISOString()
             });
           } catch (e) {

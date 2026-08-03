@@ -5,14 +5,17 @@ import rateLimit from 'express-rate-limit';
 
 const app: Application = express();
 
+// Trust proxy for Nginx / Docker reverse proxy
+app.set('trust proxy', 1);
+
 // Security Middlewares
 app.use(helmet());
 app.use(cors());
 
-// Rate Limiting
+// Rate Limiting - Increased to prevent lockout during frequent dashboard telemetry refreshes
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 3000, // Limit each IP to 3000 requests per windowMs
   standardHeaders: true,
   legacyHeaders: false,
 });
