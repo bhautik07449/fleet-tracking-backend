@@ -112,3 +112,25 @@ export const deleteVehicle = async (vehicleId: string, companyId: string) => {
   await pool.query('DELETE FROM "Vehicle" WHERE id = $1', [vehicleId]);
   return { message: 'Vehicle deleted successfully' };
 };
+
+export const getVehicleLocationHistory = async (vehicleId: string, companyId: string, hours: number = 24) => {
+  const check = await pool.query('SELECT id, "vehicleNumber" FROM "Vehicle" WHERE id = $1 AND "companyId" = $2', [vehicleId, companyId]);
+  if (check.rows.length === 0) {
+    throw new Error('Vehicle not found');
+  }
+  
+  const res = await pool.query(`
+    SELECT latitude, longitude, speed, heading, timestamp, "ignitionStatus", altitude 
+    FROM "VehicleLocation"
+    WHERE "vehicleId" = $1 AND timestamp >= NOW() - INTERVAL '1 hour' * $2
+    ORDER BY timestamp ASC
+  `, [vehicleId, hours]);
+  
+  return {
+    vehicleId,
+    vehicleNumber: check.rows[0].vehicleNumber,
+    hours,
+    count: res.rows.length,
+    locations: res.rows
+  };
+};

@@ -69,3 +69,14 @@ export const deleteVehicle = async (req: AuthRequest, res: Response): Promise<an
     return sendError(res, 400, error.message || 'Failed to delete vehicle');
   }
 };
+
+export const getVehicleHistory = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const companyId = req.user.companyId;
+    const hours = parseInt(req.query.hours as string) || 24;
+    const history = await vehicleService.getVehicleLocationHistory(req.params.id as string, companyId, hours);
+    return sendSuccess(res, 200, 'Vehicle location history retrieved successfully', history);
+  } catch (error: any) {
+    return sendError(res, 404, error.message || 'Failed to retrieve vehicle history');
+  }
+};
