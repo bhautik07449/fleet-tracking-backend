@@ -48,6 +48,9 @@ CREATE TABLE "GpsDevice" (
   "simNumber" TEXT,
   "status" "DeviceStatus" NOT NULL DEFAULT 'ACTIVE',
   "lastSeen" TIMESTAMP,
+  "lastLatitude" DOUBLE PRECISION,
+  "lastLongitude" DOUBLE PRECISION,
+  "lastSpeed" DOUBLE PRECISION,
   "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
   "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
 );

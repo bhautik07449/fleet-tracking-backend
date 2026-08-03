@@ -15,9 +15,23 @@ export const processLocationUpdate = async (data: any) => {
     }
     const device = deviceRes.rows[0];
 
+    // Save live coordinates and status directly to GpsDevice table immediately!
+    await client.query(`
+      UPDATE "GpsDevice" 
+      SET "lastSeen" = NOW(), status = 'ACTIVE', "lastLatitude" = $1, "lastLongitude" = $2, "lastSpeed" = $3, "updatedAt" = NOW() 
+      WHERE id = $4
+    `, [data.latitude, data.longitude, data.speed || 0, device.id]);
+
     const vehicleRes = await client.query('SELECT id FROM "Vehicle" WHERE "gpsDeviceId" = $1', [device.id]);
     if (vehicleRes.rows.length === 0) {
-      throw new Error(`No vehicle mapped to device IMEI ${data.imei}`);
+      // Even if no vehicle is assigned, save device location and broadcast real-time socket event!
+      await client.query('COMMIT');
+      try {
+        const io = getIO();
+        io.to(device.companyId).emit('device-online', { imei: data.imei, status: 'ACTIVE', lastLatitude: data.latitude, lastLongitude: data.longitude, lastSpeed: data.speed, timestamp: new Date().toISOString() });
+        io.to(device.companyId).emit('vehicle-location-update', { imei: data.imei, latitude: data.latitude, longitude: data.longitude, speed: data.speed, timestamp: new Date().toISOString() });
+      } catch (e) {}
+      return { imei: data.imei, companyId: device.companyId, latitude: data.latitude, longitude: data.longitude, speed: data.speed, timestamp: data.timestamp };
     }
     const vehicle = vehicleRes.rows[0];
 
@@ -43,9 +57,7 @@ export const processLocationUpdate = async (data: any) => {
       // Would emit socket event for alert here in production
     }
 
-    // 4. Update Device, Vehicle & Driver Status
-    await client.query('UPDATE "GpsDevice" SET "lastSeen" = NOW(), status = $1, "updatedAt" = NOW() WHERE id = $2', ['ACTIVE', device.id]);
-    
+    // 4. Update Vehicle & Driver Status
     const vStatus = data.speed > 0 ? 'RUNNING' : 'STOPPED';
     await client.query('UPDATE "Vehicle" SET status = $1, "updatedAt" = NOW() WHERE id = $2', [vStatus, vehicle.id]);
 
