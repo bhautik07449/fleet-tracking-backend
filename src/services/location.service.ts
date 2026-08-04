@@ -69,10 +69,12 @@ export const processLocationUpdate = async (data: any) => {
     const result = {
       vehicleId: vehicle.id,
       companyId: device.companyId,
+      imei: data.imei,
       latitude: data.latitude,
       longitude: data.longitude,
       speed: data.speed,
       heading: data.heading,
+      status: vStatus,
       timestamp: data.timestamp
     };
 
@@ -80,7 +82,7 @@ export const processLocationUpdate = async (data: any) => {
     try {
       const io = getIO();
       io.to(device.companyId).emit('vehicle-location-update', result);
-      io.to(device.companyId).emit('device-online', { imei: data.imei, status: 'ACTIVE', timestamp: new Date().toISOString() });
+      io.to(device.companyId).emit('device-online', { imei: data.imei, vehicleId: vehicle.id, status: 'ACTIVE', vehicleStatus: vStatus, latitude: data.latitude, longitude: data.longitude, speed: data.speed, timestamp: new Date().toISOString() });
     } catch (e) {
       // Socket might not be ready yet; safe to ignore
     }
@@ -97,16 +99,38 @@ export const processLocationUpdate = async (data: any) => {
 export const touchDeviceLastSeen = async (imei: string) => {
   const client = await pool.connect();
   try {
-    const res = await client.query('UPDATE "GpsDevice" SET "lastSeen" = NOW(), status = $1, "updatedAt" = NOW() WHERE imei = $2 RETURNING id, "companyId"', ['ACTIVE', imei]);
+    const res = await client.query('UPDATE "GpsDevice" SET "lastSeen" = NOW(), status = $1, "updatedAt" = NOW() WHERE imei = $2 RETURNING id, "companyId", "lastLatitude", "lastLongitude", "lastSpeed"', ['ACTIVE', imei]);
     if (res.rows.length > 0) {
       const device = res.rows[0];
       // If the mapped vehicle was OFFLINE, change its status to STOPPED and awaken assigned driver
-      await client.query(`UPDATE "Vehicle" SET status = 'STOPPED', "updatedAt" = NOW() WHERE "gpsDeviceId" = $1 AND status = 'OFFLINE'`, [device.id]);
+      const vRes = await client.query(`UPDATE "Vehicle" SET status = CASE WHEN status = 'OFFLINE' THEN 'STOPPED' ELSE status END, "updatedAt" = NOW() WHERE "gpsDeviceId" = $1 RETURNING id, status`, [device.id]);
       await client.query(`UPDATE "Driver" SET "isActive" = TRUE, "updatedAt" = NOW() WHERE id = (SELECT "driverId" FROM "Vehicle" WHERE "gpsDeviceId" = $1)`, [device.id]);
       try {
         const io = getIO();
-        io.to(device.companyId).emit('device-online', { imei, status: 'ACTIVE', timestamp: new Date().toISOString() });
-        io.to(device.companyId).emit('vehicle-location-update', { imei, timestamp: new Date().toISOString() });
+        const vehicleId = vRes.rows.length > 0 ? vRes.rows[0].id : undefined;
+        const vehicleStatus = vRes.rows.length > 0 ? vRes.rows[0].status : 'STOPPED';
+
+        io.to(device.companyId).emit('device-online', { 
+          imei, 
+          vehicleId, 
+          status: 'ACTIVE', 
+          vehicleStatus, 
+          latitude: device.lastLatitude, 
+          longitude: device.lastLongitude, 
+          speed: device.lastSpeed || 0, 
+          timestamp: new Date().toISOString() 
+        });
+        if (vehicleId) {
+          io.to(device.companyId).emit('vehicle-location-update', { 
+            vehicleId, 
+            imei, 
+            latitude: device.lastLatitude, 
+            longitude: device.lastLongitude, 
+            speed: device.lastSpeed || 0, 
+            status: vehicleStatus, 
+            timestamp: new Date().toISOString() 
+          });
+        }
       } catch (e) {}
     }
   } catch (error) {
@@ -138,7 +162,7 @@ export const markDeviceOffline = async (imei: string) => {
         const io = getIO();
         io.to(device.companyId).emit('device-offline', { imei, status: 'INACTIVE', timestamp: new Date().toISOString() });
         if (vRes.rows.length > 0) {
-          io.to(device.companyId).emit('vehicle-offline', { vehicleId: vRes.rows[0].id, status: 'OFFLINE', timestamp: new Date().toISOString() });
+          io.to(device.companyId).emit('vehicle-offline', { vehicleId: vRes.rows[0].id, imei, status: 'OFFLINE', timestamp: new Date().toISOString() });
         }
       } catch (e) {}
       console.log(`[TCP] Marked IMEI ${imei}, associated vehicle and driver as OFFLINE.`);
