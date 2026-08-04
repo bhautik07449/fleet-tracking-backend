@@ -144,3 +144,27 @@ CREATE TABLE "ActivityLog" (
   "details" JSONB,
   "createdAt" TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE "SharedLink" (
+  "id" TEXT PRIMARY KEY,
+  "companyId" TEXT NOT NULL REFERENCES "Company"("id") ON DELETE CASCADE,
+  "vehicleId" TEXT NOT NULL REFERENCES "Vehicle"("id") ON DELETE CASCADE,
+  "token" TEXT UNIQUE NOT NULL,
+  "expiresAt" TIMESTAMP NOT NULL,
+  "createdAt" TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE "MaintenanceReminder" (
+  "id" TEXT PRIMARY KEY,
+  "companyId" TEXT NOT NULL REFERENCES "Company"("id") ON DELETE CASCADE,
+  "vehicleId" TEXT NOT NULL REFERENCES "Vehicle"("id") ON DELETE CASCADE,
+  "title" TEXT NOT NULL,
+  "category" TEXT NOT NULL,
+  "dueDate" DATE,
+  "dueDistance" DOUBLE PRECISION,
+  "currentDistance" DOUBLE PRECISION DEFAULT 0,
+  "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+  "notes" TEXT,
+  "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+  "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
+);

@@ -78,11 +78,12 @@ export const processLocationUpdate = async (data: any) => {
       timestamp: data.timestamp
     };
 
-    // Broadcast real-time update to connected frontend clients
+    // Broadcast real-time update to connected frontend clients & shared live links
     try {
       const io = getIO();
       io.to(device.companyId).emit('vehicle-location-update', result);
       io.to(device.companyId).emit('device-online', { imei: data.imei, vehicleId: vehicle.id, status: 'ACTIVE', vehicleStatus: vStatus, latitude: data.latitude, longitude: data.longitude, speed: data.speed, timestamp: new Date().toISOString() });
+      io.to(`share_${vehicle.id}`).emit('vehicle-location-update', result);
     } catch (e) {
       // Socket might not be ready yet; safe to ignore
     }

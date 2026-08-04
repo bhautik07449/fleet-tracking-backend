@@ -12,13 +12,37 @@ const server = http.createServer(app);
 // Initialize Socket.IO Server
 initSocketServer(server);
 
-// Run automatic schema migration for GpsDevice location columns on startup
+// Run automatic schema migration for new columns & tables on startup
 pool.query(`
   ALTER TABLE "GpsDevice" 
   ADD COLUMN IF NOT EXISTS "lastLatitude" DOUBLE PRECISION,
   ADD COLUMN IF NOT EXISTS "lastLongitude" DOUBLE PRECISION,
   ADD COLUMN IF NOT EXISTS "lastSpeed" DOUBLE PRECISION;
-`).then(() => console.log('[DB] Verified GpsDevice location schema.'))
+
+  CREATE TABLE IF NOT EXISTS "SharedLink" (
+    "id" TEXT PRIMARY KEY,
+    "companyId" TEXT NOT NULL REFERENCES "Company"("id") ON DELETE CASCADE,
+    "vehicleId" TEXT NOT NULL REFERENCES "Vehicle"("id") ON DELETE CASCADE,
+    "token" TEXT UNIQUE NOT NULL,
+    "expiresAt" TIMESTAMP NOT NULL,
+    "createdAt" TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS "MaintenanceReminder" (
+    "id" TEXT PRIMARY KEY,
+    "companyId" TEXT NOT NULL REFERENCES "Company"("id") ON DELETE CASCADE,
+    "vehicleId" TEXT NOT NULL REFERENCES "Vehicle"("id") ON DELETE CASCADE,
+    "title" TEXT NOT NULL,
+    "category" TEXT NOT NULL,
+    "dueDate" DATE,
+    "dueDistance" DOUBLE PRECISION,
+    "currentDistance" DOUBLE PRECISION DEFAULT 0,
+    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+    "notes" TEXT,
+    "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+    "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+`).then(() => console.log('[DB] Verified database schema & tables (SharedLink, MaintenanceReminder).'))
   .catch((e) => console.error('[DB] Schema verification notice:', e.message));
 
 server.listen(PORT, () => {

@@ -39,6 +39,8 @@ import geofenceRoutes from './routes/geofence.routes';
 import alertRoutes from './routes/alert.routes';
 import reportRoutes from './routes/report.routes';
 import dashboardRoutes from './routes/dashboard.routes';
+import shareRoutes from './routes/share.routes';
+import maintenanceRoutes from './routes/maintenance.routes';
 import { setupSwagger } from './swagger';
 
 setupSwagger(app as any);
@@ -54,5 +56,7 @@ app.use('/api/v1/geofences', geofenceRoutes);
 app.use('/api/v1/alerts', alertRoutes);
 app.use('/api/v1/reports', reportRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/v1/share', shareRoutes);
+app.use('/api/v1/maintenance', maintenanceRoutes);
 
 export default app;

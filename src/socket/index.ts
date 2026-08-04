@@ -11,10 +11,24 @@ export const initSocketServer = (server: HttpServer) => {
     },
   });
 
-  // Socket Authentication Middleware
-  io.use((socket: Socket, next) => {
+  // Socket Authentication & Share Token Middleware
+  io.use(async (socket: Socket, next) => {
+    const shareToken = socket.handshake.auth.shareToken || socket.handshake.query?.shareToken;
+    if (shareToken) {
+      try {
+        const pool = require('../db').default;
+        const res = await pool.query('SELECT "vehicleId", "expiresAt" FROM "SharedLink" WHERE token = $1', [shareToken]);
+        if (res.rows.length > 0 && new Date(res.rows[0].expiresAt) > new Date()) {
+          (socket as any).shareRoom = `share_${res.rows[0].vehicleId}`;
+          return next();
+        }
+        return next(new Error('Authentication error: Invalid or expired tracking share link'));
+      } catch(e) {
+        return next(new Error('Authentication error checking share token'));
+      }
+    }
+
     const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(' ')[1];
-    
     if (!token) {
       return next(new Error('Authentication error: Token not provided'));
     }
@@ -30,13 +44,21 @@ export const initSocketServer = (server: HttpServer) => {
   });
 
   io.on('connection', (socket: Socket) => {
-    const user = (socket as any).user;
-    console.log(`[Socket.IO] Client connected: ${socket.id} (User: ${user.userId})`);
+    if ((socket as any).shareRoom) {
+      const room = (socket as any).shareRoom;
+      socket.join(room);
+      console.log(`[Socket.IO] Client connected to share room: ${socket.id} -> ${room}`);
+      return;
+    }
 
-    // Users join a room specifically for their company
-    if (user.companyId) {
-      socket.join(user.companyId);
-      console.log(`[Socket.IO] Socket ${socket.id} joined room: ${user.companyId}`);
+    const user = (socket as any).user;
+    if (user) {
+      console.log(`[Socket.IO] Client connected: ${socket.id} (User: ${user.userId})`);
+      // Users join a room specifically for their company
+      if (user.companyId) {
+        socket.join(user.companyId);
+        console.log(`[Socket.IO] Socket ${socket.id} joined room: ${user.companyId}`);
+      }
     }
 
     socket.on('disconnect', () => {
