@@ -7,13 +7,13 @@ export const generateTokens = (userId: string, role: string, companyId?: string 
   const accessToken = jwt.sign(
     { userId, role, companyId },
     JWT_SECRET,
-    { expiresIn: '3650d' } // 10 years duration (no auto logout)
+    { expiresIn: (process.env.JWT_EXPIRES_IN || '3650d') as any }
   );
 
   const refreshToken = jwt.sign(
     { userId },
     JWT_REFRESH_SECRET,
-    { expiresIn: '3650d' } // 10 years duration (no auto logout)
+    { expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN || '3650d') as any }
   );
 
   return { accessToken, refreshToken };

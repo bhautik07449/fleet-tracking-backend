@@ -44,7 +44,7 @@ export const startOfflineChecker = () => {
           v."gpsDeviceId" IS NULL OR 
           v."gpsDeviceId" IN (SELECT id FROM "GpsDevice" WHERE status = 'INACTIVE')
         )
-        RETURNING v.id as "vehicleId", v."companyId", v."driverId"
+        RETURNING v.id as "vehicleId", v."companyId", v."driverId", v."vehicleNumber"
       `;
       const vehRes = await client.query(vehicleQuery);
 
@@ -66,6 +66,29 @@ export const startOfflineChecker = () => {
       }
       
       await client.query('COMMIT');
+
+      // 3. Dispatch automated Email & UI alerts for newly OFFLINE / STOPPED vehicles after commit
+      if (vehRes.rows.length > 0) {
+        for (const row of vehRes.rows) {
+          try {
+            const recentAlert = await pool.query(
+              `SELECT id FROM "Alert" WHERE "vehicleId" = $1 AND type = 'OFFLINE' AND "isRead" = false AND "createdAt" > NOW() - INTERVAL '30 minutes'`,
+              [row.vehicleId]
+            );
+            if (recentAlert.rows.length === 0) {
+              const { createSystemAlert } = require('../services/alert.service');
+              await createSystemAlert(
+                row.vehicleId,
+                row.companyId,
+                'OFFLINE',
+                `GPS is OFF: Your vehicle (${row.vehicleNumber || 'ID ' + row.vehicleId}) is currently stopped / disconnected.`
+              );
+            }
+          } catch (alertErr) {
+            console.error('[Offline Checker] Failed to dispatch offline alert:', alertErr);
+          }
+        }
+      }
     } catch (error) {
       await client.query('ROLLBACK');
       console.error('[JOBS] Error in Offline Checker:', error);

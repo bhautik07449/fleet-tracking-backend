@@ -46,16 +46,9 @@ export const processLocationUpdate = async (data: any) => {
       data.battery || null, data.ignitionStatus || false, new Date(data.timestamp)
     ]);
 
-    // 3. Simple overspeed logic
-    const MAX_SPEED = 80;
-    if (data.speed > MAX_SPEED) {
-      const alertId = crypto.randomUUID();
-      await client.query(`
-        INSERT INTO "Alert" (id, "vehicleId", type, message)
-        VALUES ($1, $2, $3, $4)
-      `, [alertId, vehicle.id, 'OVERSPEED', `Vehicle exceeded speed limit: ${data.speed} km/h`]);
-      // Would emit socket event for alert here in production
-    }
+    // 3. Check overspeed condition (will trigger system alert after COMMIT to avoid blocking transaction)
+    const MAX_SPEED = 10;
+    const isOverspeed = data.speed > MAX_SPEED;
 
     // 4. Update Vehicle & Driver Status
     const vStatus = data.speed > 0 ? 'RUNNING' : 'STOPPED';
@@ -65,6 +58,19 @@ export const processLocationUpdate = async (data: any) => {
     await client.query('UPDATE "Driver" SET "isActive" = TRUE, "updatedAt" = NOW() WHERE id = (SELECT "driverId" FROM "Vehicle" WHERE id = $1)', [vehicle.id]);
 
     await client.query('COMMIT');
+
+    if (isOverspeed) {
+      // Check if an unread overspeed alert was recently sent within the last 15 minutes to prevent email & socket notification spam
+      const recentAlert = await pool.query(`SELECT id FROM "Alert" WHERE "vehicleId" = $1 AND type = 'OVERSPEED' AND "isRead" = false AND "createdAt" > NOW() - INTERVAL '15 minutes'`, [vehicle.id]);
+      if (recentAlert.rows.length === 0) {
+        try {
+          const { createSystemAlert } = require('./alert.service');
+          await createSystemAlert(vehicle.id, device.companyId, 'OVERSPEED', `Vehicle exceeded speed limit: ${Math.round(data.speed)} km/h (Limit: ${MAX_SPEED} km/h)`);
+        } catch (alertErr) {
+          console.error('[Alert Engine] Error dispatching overspeed alert:', alertErr);
+        }
+      }
+    }
 
     const result = {
       vehicleId: vehicle.id,
@@ -154,7 +160,7 @@ export const markDeviceOffline = async (imei: string) => {
       
       // Also set any mapped Vehicle to OFFLINE and assigned Driver to INACTIVE
       await client.query(`UPDATE "Driver" SET "isActive" = FALSE, "updatedAt" = NOW() WHERE id = (SELECT "driverId" FROM "Vehicle" WHERE "gpsDeviceId" = $1)`, [device.id]);
-      const vRes = await client.query('UPDATE "Vehicle" SET status = $1, "updatedAt" = NOW() WHERE "gpsDeviceId" = $2 RETURNING id', ['OFFLINE', device.id]);
+      const vRes = await client.query('UPDATE "Vehicle" SET status = $1, "updatedAt" = NOW() WHERE "gpsDeviceId" = $2 RETURNING id, "vehicleNumber"', ['OFFLINE', device.id]);
       
       await client.query('COMMIT');
 
@@ -166,6 +172,29 @@ export const markDeviceOffline = async (imei: string) => {
           io.to(device.companyId).emit('vehicle-offline', { vehicleId: vRes.rows[0].id, imei, status: 'OFFLINE', timestamp: new Date().toISOString() });
         }
       } catch (e) {}
+
+      // Dispatch GPS OFF & Vehicle Stopped system alert and email notification
+      if (vRes.rows.length > 0) {
+        const veh = vRes.rows[0];
+        try {
+          const recentAlert = await pool.query(
+            `SELECT id FROM "Alert" WHERE "vehicleId" = $1 AND type = 'OFFLINE' AND "isRead" = false AND "createdAt" > NOW() - INTERVAL '30 minutes'`,
+            [veh.id]
+          );
+          if (recentAlert.rows.length === 0) {
+            const { createSystemAlert } = require('./alert.service');
+            await createSystemAlert(
+              veh.id,
+              device.companyId,
+              'OFFLINE',
+              `GPS is OFF: Your vehicle (${veh.vehicleNumber || 'ID ' + veh.id}) is currently stopped / disconnected.`
+            );
+          }
+        } catch (alertErr) {
+          console.error('[Location Service] Failed to dispatch offline alert:', alertErr);
+        }
+      }
+
       console.log(`[TCP] Marked IMEI ${imei}, associated vehicle and driver as OFFLINE.`);
     } else {
       await client.query('ROLLBACK');

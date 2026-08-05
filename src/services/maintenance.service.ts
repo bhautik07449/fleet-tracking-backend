@@ -41,6 +41,26 @@ export const getReminders = async (companyId: string, vehicleId?: string) => {
       if (computedStatus !== row.status) {
         row.status = computedStatus;
         await pool.query('UPDATE "MaintenanceReminder" SET status = $1, "updatedAt" = NOW() WHERE id = $2', [computedStatus, row.id]);
+
+        if (computedStatus === 'EXPIRED' || computedStatus === 'DUE_SOON') {
+          try {
+            const recentAlert = await pool.query(
+              `SELECT id FROM "Alert" WHERE "vehicleId" = $1 AND type = 'MAINTENANCE' AND "isRead" = false AND "createdAt" > NOW() - INTERVAL '24 hours'`, 
+              [row.vehicleId]
+            );
+            if (recentAlert.rows.length === 0) {
+              const { createSystemAlert } = require('./alert.service');
+              await createSystemAlert(
+                row.vehicleId, 
+                companyId, 
+                'MAINTENANCE', 
+                `Maintenance reminder "${row.title}" (${row.category}) is ${computedStatus === 'EXPIRED' ? 'OVERDUE & EXPIRED' : 'DUE SOON'} for vehicle ${row.vehicleNumber}!`
+              );
+            }
+          } catch (mErr) {
+            console.error('[Maintenance Alert] Failed to trigger maintenance alert:', mErr);
+          }
+        }
       }
     }
   }
