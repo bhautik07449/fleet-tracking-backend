@@ -70,7 +70,8 @@ export const createSystemAlert = async (vehicleId: string, companyId: string, ty
     process.env.SMTP_PASS !== 'your_smtp_pass'
   ) {
     try {
-      const userRes = await pool.query('SELECT email, name FROM "User" WHERE "companyId" = $1 AND "isActive" = true', [companyId]);
+      const userRes = await pool.query('SELECT email, name FROM "User" WHERE "companyId" = $1', [companyId]);
+      console.log(`[Alert Email] Found ${userRes.rows.length} recipient(s) for company ${companyId}`);
       const subject = `🚨 [Fleet Alert: ${type}] Vehicle ${vehicle.vehicleNumber} Incident Notification`;
       const html = `
         <div style="font-family: Arial, sans-serif; padding: 25px; max-width: 600px; margin: 0 auto; background-color: #0f172a; color: #f8fafc; border-radius: 16px; border: 1px solid #334155; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
@@ -115,6 +116,8 @@ export const createSystemAlert = async (vehicleId: string, companyId: string, ty
     } catch (err: any) {
       console.error('[Alert Email] Error retrieving user email recipients:', err.message);
     }
+  } else {
+    console.log('[Alert Email] SMTP credentials not fully configured in .env (or using default placeholders). Email alert skipped.');
   }
 
   return fullAlert;
