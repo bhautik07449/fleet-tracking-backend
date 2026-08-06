@@ -50,9 +50,9 @@ export const processLocationUpdate = async (data: any) => {
         }
 
         // --- Static Drift (Parking) Filter ---
-        // If ignition is strictly OFF, or if device reports very low speed (< 5 km/h) within a 40 meter radius,
+        // If device reports very low speed (< 5 km/h) within a 40 meter radius,
         // it's likely just GPS drift while parked. Snap to last known position to prevent wandering.
-        if (data.ignitionStatus === false || ((data.speed || 0) < 5 && distKm < 0.04)) {
+        if ((data.speed || 0) < 5 && distKm < 0.04) {
           data.latitude = v.lastLatitude;
           data.longitude = v.lastLongitude;
           data.speed = 0;
