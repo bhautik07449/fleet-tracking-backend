@@ -2,7 +2,23 @@ import pool from '../db';
 import crypto from 'crypto';
 import { getIO } from '../socket/index';
 
+function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371; // Earth radius in km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c; // Distance in km
+}
+
 export const processLocationUpdate = async (data: any) => {
+  // Discard null island coordinates
+  if (!data.latitude || !data.longitude || (data.latitude === 0 && data.longitude === 0)) {
+    return null;
+  }
+
   const client = await pool.connect();
   
   try {
@@ -15,14 +31,41 @@ export const processLocationUpdate = async (data: any) => {
     }
     const device = deviceRes.rows[0];
 
+    const vehicleRes = await client.query('SELECT id, "maxSpeed", "lastLatitude", "lastLongitude", "lastSeen" FROM "Vehicle" WHERE "gpsDeviceId" = $1', [device.id]);
+    
+    // --- Anomaly / Spiderweb Detection ---
+    if (vehicleRes.rows.length > 0) {
+      const v = vehicleRes.rows[0];
+      if (v.lastLatitude && v.lastLongitude && v.lastSeen) {
+        const distKm = getDistance(v.lastLatitude, v.lastLongitude, data.latitude, data.longitude);
+        // Minimum assumed time gap of 5 seconds (0.00138 hr) to prevent absurd speed spikes on rapid consecutive packets
+        const timeElapsedHours = Math.max(0.00138, Math.abs(new Date(data.timestamp).getTime() - new Date(v.lastSeen).getTime()) / (1000 * 60 * 60));
+        const impliedSpeed = distKm / timeElapsedHours;
+
+        // Reject if implied speed > 200 km/h AND distance is notable (> 0.2 km to allow slight GPS drift/jitter)
+        if (impliedSpeed > 200 && distKm > 0.2) {
+          console.warn(`[TCP] Blocked Anomalous GPS jump for IMEI ${data.imei}: ${distKm.toFixed(2)}km in ${timeElapsedHours.toFixed(4)}hr (Implied ${impliedSpeed.toFixed(0)}km/h).`);
+          await client.query('ROLLBACK');
+          return null;
+        }
+
+        // --- Static Drift (Parking) Filter ---
+        // If device reports speed < 3 km/h and is within 25 meters of the last point, 
+        // it's likely just GPS drift while parked. Snap to last known position to prevent wandering.
+        if ((data.speed || 0) < 3 && distKm < 0.025) {
+          data.latitude = v.lastLatitude;
+          data.longitude = v.lastLongitude;
+          data.speed = 0;
+        }
+      }
+    }
+
     // Save live coordinates and status directly to GpsDevice table immediately!
     await client.query(`
       UPDATE "GpsDevice" 
       SET "lastSeen" = NOW(), status = 'ACTIVE', "lastLatitude" = $1, "lastLongitude" = $2, "lastSpeed" = $3, "updatedAt" = NOW() 
       WHERE id = $4
     `, [data.latitude, data.longitude, data.speed || 0, device.id]);
-
-    const vehicleRes = await client.query('SELECT id, "maxSpeed" FROM "Vehicle" WHERE "gpsDeviceId" = $1', [device.id]);
     if (vehicleRes.rows.length === 0) {
       // Even if no vehicle is assigned, save device location and broadcast real-time socket event!
       await client.query('COMMIT');
@@ -64,20 +107,24 @@ export const processLocationUpdate = async (data: any) => {
     await client.query('COMMIT');
 
     if (isOverspeed) {
-      // Check if an unread overspeed alert was recently sent within the last 15 minutes to prevent email & socket notification spam
-      const recentAlert = await pool.query(`SELECT id FROM "Alert" WHERE "vehicleId" = $1 AND type = 'OVERSPEED' AND "isRead" = false AND "createdAt" > NOW() - INTERVAL '15 minutes'`, [vehicle.id]);
-      if (recentAlert.rows.length === 0) {
-        try {
-          const { createSystemAlert } = require('./alert.service');
-          await createSystemAlert(
-            vehicle.id, 
-            device.companyId, 
-            'OVERSPEED', 
-            `OVERSPEED ALERT: Vehicle exceeded maximum limit of ${MAX_SPEED} km/h! Currently driving at ${Math.round(data.speed || 0)} km/h.`
-          );
-        } catch (alertErr) {
-          console.error('[Alert Engine] Error dispatching overspeed alert:', alertErr);
+      // Wrap in a safe catch block so this side-effect doesn't break the already-committed transaction rollback handler
+      try {
+        const recentAlert = await pool.query(`SELECT id FROM "Alert" WHERE "vehicleId" = $1 AND type = 'OVERSPEED' AND "isRead" = false AND "createdAt" > NOW() - INTERVAL '15 minutes'`, [vehicle.id]);
+        if (recentAlert.rows.length === 0) {
+          try {
+            const { createSystemAlert } = require('./alert.service');
+            await createSystemAlert(
+              vehicle.id, 
+              device.companyId, 
+              'OVERSPEED', 
+              `OVERSPEED ALERT: Vehicle exceeded maximum limit of ${MAX_SPEED} km/h! Currently driving at ${Math.round(data.speed || 0)} km/h.`
+            );
+          } catch (alertErr) {
+            console.error('[Alert Engine] Error dispatching overspeed alert:', alertErr);
+          }
         }
+      } catch (poolErr) {
+        console.error('[Alert Engine] DB Error while checking recent overspeed alerts:', poolErr);
       }
     }
 

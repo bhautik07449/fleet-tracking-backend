@@ -62,3 +62,12 @@ startTcpServer();
 
 // Start the Background Job for offline detection
 startOfflineChecker();
+
+// Global Fallback Error Handlers to prevent complete server crashes
+process.on('uncaughtException', (err) => {
+  console.error('[CRITICAL] Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[CRITICAL] Unhandled Promise Rejection at:', promise, 'reason:', reason);
+});
