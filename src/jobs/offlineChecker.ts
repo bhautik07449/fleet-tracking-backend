@@ -81,13 +81,48 @@ export const startOfflineChecker = () => {
                 row.vehicleId,
                 row.companyId,
                 'OFFLINE',
-                `GPS is OFF: Your vehicle (${row.vehicleNumber || 'ID ' + row.vehicleId}) is currently stopped / disconnected.`
+                `DEVICE INACTIVE / OFFLINE: GPS device on vehicle ${row.vehicleNumber || 'ID ' + row.vehicleId} is not functioning or stopped sending signals.`
               );
             }
           } catch (alertErr) {
             console.error('[Offline Checker] Failed to dispatch offline alert:', alertErr);
           }
         }
+      }
+
+      // 4. Automatically dispatch Maintenance & Compliance Reminder Alerts when due
+      try {
+        const dueReminders = await pool.query(`
+          SELECT m.*, v."vehicleNumber" 
+          FROM "MaintenanceReminder" m
+          JOIN "Vehicle" v ON m."vehicleId" = v.id
+          WHERE m.status = 'ACTIVE' 
+          AND (
+            (m."dueDate" IS NOT NULL AND m."dueDate" <= NOW() + INTERVAL '7 days')
+            OR 
+            (m."dueDistance" IS NOT NULL AND m."currentDistance" >= m."dueDistance" - 500)
+          )
+        `);
+
+        if (dueReminders.rows.length > 0) {
+          for (const rem of dueReminders.rows) {
+            const recentRemAlert = await pool.query(
+              `SELECT id FROM "Alert" WHERE "vehicleId" = $1 AND type = 'MAINTENANCE' AND "isRead" = false AND "createdAt" > NOW() - INTERVAL '24 hours'`,
+              [rem.vehicleId]
+            );
+            if (recentRemAlert.rows.length === 0) {
+              const { createSystemAlert } = require('../services/alert.service');
+              await createSystemAlert(
+                rem.vehicleId,
+                rem.companyId,
+                'MAINTENANCE',
+                `MAINTENANCE & COMPLIANCE ALERT: ${rem.title} (${rem.category}) for vehicle ${rem.vehicleNumber} is due soon or overdue!`
+              );
+            }
+          }
+        }
+      } catch (remErr) {
+        // Table might be initializing or empty
       }
     } catch (error) {
       await client.query('ROLLBACK');

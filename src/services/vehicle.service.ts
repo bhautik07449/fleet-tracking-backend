@@ -6,9 +6,10 @@ export const getVehicles = async (companyId: string, skip?: number, limit?: numb
     SELECT v.*, 
       json_build_object('id', d.id, 'name', d.name) as driver,
       json_build_object('id', g.id, 'imei', g.imei) as "gpsDevice",
-      loc.latitude as "lastLatitude",
-      loc.longitude as "lastLongitude",
-      loc.speed as "lastSpeed"
+      COALESCE(v."lastLatitude", loc.latitude, g."lastLatitude") as "lastLatitude",
+      COALESCE(v."lastLongitude", loc.longitude, g."lastLongitude") as "lastLongitude",
+      COALESCE(v."lastSpeed", loc.speed, g."lastSpeed", 0) as "lastSpeed",
+      COALESCE(v."maxSpeed", 80) as "maxSpeed"
     FROM "Vehicle" v
     LEFT JOIN "Driver" d ON v."driverId" = d.id
     LEFT JOIN "GpsDevice" g ON v."gpsDeviceId" = g.id
@@ -26,10 +27,19 @@ export const getVehicleById = async (vehicleId: string, companyId: string) => {
   const res = await pool.query(`
     SELECT v.*, 
       json_build_object('id', d.id, 'name', d.name) as driver,
-      json_build_object('id', g.id, 'imei', g.imei) as "gpsDevice"
+      json_build_object('id', g.id, 'imei', g.imei) as "gpsDevice",
+      COALESCE(v."lastLatitude", loc.latitude, g."lastLatitude") as "lastLatitude",
+      COALESCE(v."lastLongitude", loc.longitude, g."lastLongitude") as "lastLongitude",
+      COALESCE(v."lastSpeed", loc.speed, g."lastSpeed", 0) as "lastSpeed",
+      COALESCE(v."maxSpeed", 80) as "maxSpeed"
     FROM "Vehicle" v
     LEFT JOIN "Driver" d ON v."driverId" = d.id
     LEFT JOIN "GpsDevice" g ON v."gpsDeviceId" = g.id
+    LEFT JOIN LATERAL (
+      SELECT latitude, longitude, speed FROM "VehicleLocation"
+      WHERE "vehicleId" = v.id
+      ORDER BY timestamp DESC LIMIT 1
+    ) loc ON true
     WHERE v.id = $1 AND v."companyId" = $2
   `, [vehicleId, companyId]);
   if (res.rows.length === 0) {
@@ -53,8 +63,8 @@ export const createVehicle = async (companyId: string, data: any) => {
 
   const id = crypto.randomUUID();
   const res = await pool.query(
-    'INSERT INTO "Vehicle" (id, "companyId", "vehicleNumber", type, model, "driverId", "gpsDeviceId", "updatedAt") VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) RETURNING *',
-    [id, companyId, data.vehicleNumber, data.type, data.model, data.driverId || null, data.gpsDeviceId || null]
+    'INSERT INTO "Vehicle" (id, "companyId", "vehicleNumber", type, model, "maxSpeed", "driverId", "gpsDeviceId", "updatedAt") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) RETURNING *',
+    [id, companyId, data.vehicleNumber, data.type, data.model, data.maxSpeed ? Number(data.maxSpeed) : 80, data.driverId || null, data.gpsDeviceId || null]
   );
   return res.rows[0];
 };
@@ -89,6 +99,7 @@ export const updateVehicle = async (vehicleId: string, companyId: string, data: 
   if (data.status !== undefined) { updates.push(`status = $${paramIdx++}`); values.push(data.status); }
   if (data.driverId !== undefined) { updates.push(`"driverId" = $${paramIdx++}`); values.push(data.driverId); }
   if (data.gpsDeviceId !== undefined) { updates.push(`"gpsDeviceId" = $${paramIdx++}`); values.push(data.gpsDeviceId); }
+  if (data.maxSpeed !== undefined) { updates.push(`"maxSpeed" = $${paramIdx++}`); values.push(Number(data.maxSpeed)); }
 
   if (updates.length === 0) return getVehicleById(vehicleId, companyId);
 

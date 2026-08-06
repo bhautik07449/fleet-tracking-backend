@@ -4,6 +4,7 @@ export const createVehicleSchema = Joi.object({
   vehicleNumber: Joi.string().min(2).max(50).required(),
   type: Joi.string().max(50).allow(null, ''),
   model: Joi.string().max(100).allow(null, ''),
+  maxSpeed: Joi.number().min(1).max(300).default(80),
   driverId: Joi.string().uuid().allow(null, ''),
   gpsDeviceId: Joi.string().uuid().allow(null, ''),
 });
@@ -12,6 +13,7 @@ export const updateVehicleSchema = Joi.object({
   vehicleNumber: Joi.string().min(2).max(50),
   type: Joi.string().max(50).allow(null, ''),
   model: Joi.string().max(100).allow(null, ''),
+  maxSpeed: Joi.number().min(1).max(300),
   driverId: Joi.string().uuid().allow(null, ''),
   gpsDeviceId: Joi.string().uuid().allow(null, ''),
   status: Joi.string().valid('RUNNING', 'STOPPED', 'OFFLINE'),

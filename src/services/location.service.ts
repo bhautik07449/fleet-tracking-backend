@@ -22,7 +22,7 @@ export const processLocationUpdate = async (data: any) => {
       WHERE id = $4
     `, [data.latitude, data.longitude, data.speed || 0, device.id]);
 
-    const vehicleRes = await client.query('SELECT id FROM "Vehicle" WHERE "gpsDeviceId" = $1', [device.id]);
+    const vehicleRes = await client.query('SELECT id, "maxSpeed" FROM "Vehicle" WHERE "gpsDeviceId" = $1', [device.id]);
     if (vehicleRes.rows.length === 0) {
       // Even if no vehicle is assigned, save device location and broadcast real-time socket event!
       await client.query('COMMIT');
@@ -46,13 +46,17 @@ export const processLocationUpdate = async (data: any) => {
       data.battery || null, data.ignitionStatus || false, new Date(data.timestamp)
     ]);
 
-    // 3. Check overspeed condition (will trigger system alert after COMMIT to avoid blocking transaction)
-    const MAX_SPEED = 10;
-    const isOverspeed = data.speed > MAX_SPEED;
+    // 3. Check overspeed condition against customized vehicle maxSpeed (default 80 km/h)
+    const MAX_SPEED = Number(vehicle.maxSpeed || 80);
+    const isOverspeed = (data.speed || 0) > MAX_SPEED;
 
-    // 4. Update Vehicle & Driver Status
-    const vStatus = data.speed > 0 ? 'RUNNING' : 'STOPPED';
-    await client.query('UPDATE "Vehicle" SET status = $1, "updatedAt" = NOW() WHERE id = $2', [vStatus, vehicle.id]);
+    // 4. Update Vehicle & Driver Status and save exact live GPS coordinates directly onto Vehicle table!
+    const vStatus = (data.speed || 0) > 0 ? 'RUNNING' : 'STOPPED';
+    await client.query(`
+      UPDATE "Vehicle" 
+      SET status = $1, "lastLatitude" = $2, "lastLongitude" = $3, "lastSpeed" = $4, "lastSeen" = NOW(), "updatedAt" = NOW() 
+      WHERE id = $5
+    `, [vStatus, data.latitude, data.longitude, data.speed || 0, vehicle.id]);
 
     // Check if vehicle has a driver and update their status to ACTIVE when GPS is communicating
     await client.query('UPDATE "Driver" SET "isActive" = TRUE, "updatedAt" = NOW() WHERE id = (SELECT "driverId" FROM "Vehicle" WHERE id = $1)', [vehicle.id]);
@@ -65,7 +69,12 @@ export const processLocationUpdate = async (data: any) => {
       if (recentAlert.rows.length === 0) {
         try {
           const { createSystemAlert } = require('./alert.service');
-          await createSystemAlert(vehicle.id, device.companyId, 'OVERSPEED', `Vehicle exceeded speed limit: ${Math.round(data.speed)} km/h (Limit: ${MAX_SPEED} km/h)`);
+          await createSystemAlert(
+            vehicle.id, 
+            device.companyId, 
+            'OVERSPEED', 
+            `OVERSPEED ALERT: Vehicle exceeded maximum limit of ${MAX_SPEED} km/h! Currently driving at ${Math.round(data.speed || 0)} km/h.`
+          );
         } catch (alertErr) {
           console.error('[Alert Engine] Error dispatching overspeed alert:', alertErr);
         }
