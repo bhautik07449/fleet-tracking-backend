@@ -80,3 +80,17 @@ export const getVehicleHistory = async (req: AuthRequest, res: Response): Promis
     return sendError(res, 404, error.message || 'Failed to retrieve vehicle history');
   }
 };
+
+export const toggleEngine = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const companyId = req.user.companyId;
+    const { status } = req.body;
+    if (status !== 'ON' && status !== 'OFF') {
+      return sendError(res, 400, 'Invalid status. Must be ON or OFF');
+    }
+    const updated = await vehicleService.toggleEngine(req.params.id as string, companyId, status);
+    return sendSuccess(res, 200, `Vehicle engine successfully turned ${status}`, updated);
+  } catch (error: any) {
+    return sendError(res, 400, error.message || 'Failed to toggle vehicle engine');
+  }
+};

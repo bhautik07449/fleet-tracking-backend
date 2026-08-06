@@ -1,9 +1,12 @@
 import pool from '../db';
 import crypto from 'crypto';
+import { getIO } from '../socket/index';
+import { createSystemAlert } from './alert.service';
 
 export const getVehicles = async (companyId: string, skip?: number, limit?: number) => {
   const res = await pool.query(`
     SELECT v.*, 
+      COALESCE(v."engineStatus", 'ON') as "engineStatus",
       json_build_object('id', d.id, 'name', d.name) as driver,
       json_build_object('id', g.id, 'imei', g.imei) as "gpsDevice",
       COALESCE(v."lastLatitude", loc.latitude, g."lastLatitude") as "lastLatitude",
@@ -26,6 +29,7 @@ export const getVehicles = async (companyId: string, skip?: number, limit?: numb
 export const getVehicleById = async (vehicleId: string, companyId: string) => {
   const res = await pool.query(`
     SELECT v.*, 
+      COALESCE(v."engineStatus", 'ON') as "engineStatus",
       json_build_object('id', d.id, 'name', d.name) as driver,
       json_build_object('id', g.id, 'imei', g.imei) as "gpsDevice",
       COALESCE(v."lastLatitude", loc.latitude, g."lastLatitude") as "lastLatitude",
@@ -111,6 +115,41 @@ export const updateVehicle = async (vehicleId: string, companyId: string, data: 
     `UPDATE "Vehicle" SET ${updates.join(', ')} WHERE id = $${paramIdx} AND "companyId" = $${paramIdx + 1}`,
     values
   );
+
+  return getVehicleById(vehicleId, companyId);
+};
+
+export const toggleEngine = async (vehicleId: string, companyId: string, status: 'ON' | 'OFF') => {
+  const check = await pool.query('SELECT id, "vehicleNumber" FROM "Vehicle" WHERE id = $1 AND "companyId" = $2', [vehicleId, companyId]);
+  if (check.rows.length === 0) {
+    throw new Error('Vehicle not found');
+  }
+
+  const vehNumber = check.rows[0].vehicleNumber;
+  await pool.query(
+    'UPDATE "Vehicle" SET "engineStatus" = $1, "updatedAt" = NOW() WHERE id = $2 AND "companyId" = $3',
+    [status, vehicleId, companyId]
+  );
+
+  const actionMsg = status === 'OFF'
+    ? `REMOTE ENGINE SHUTDOWN: Ignition and starter relay cut command transmitted to vehicle ${vehNumber}. Engine disabled.`
+    : `REMOTE ENGINE RESTORED: Ignition and fuel relay re-enabled for vehicle ${vehNumber}. Engine active.`;
+
+  try {
+    await createSystemAlert(vehicleId, companyId, 'ENGINE_CONTROL', actionMsg);
+  } catch (err) {
+    console.error('[Engine Control] Alert dispatch error:', err);
+  }
+
+  try {
+    const io = getIO();
+    io.to(companyId).emit('vehicle-engine-changed', {
+      vehicleId,
+      engineStatus: status,
+      message: actionMsg,
+      timestamp: new Date().toISOString()
+    });
+  } catch (socketErr) {}
 
   return getVehicleById(vehicleId, companyId);
 };

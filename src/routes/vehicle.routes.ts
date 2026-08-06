@@ -17,5 +17,6 @@ router.get('/:id/history', authorize(['COMPANY_OWNER', 'MANAGER', 'DRIVER']), ve
 router.post('/', authorize(['COMPANY_OWNER', 'MANAGER']), vehicleController.createVehicle);
 router.put('/:id', authorize(['COMPANY_OWNER', 'MANAGER']), vehicleController.updateVehicle);
 router.delete('/:id', authorize(['COMPANY_OWNER', 'MANAGER']), vehicleController.deleteVehicle);
+router.post('/:id/engine', authorize(['COMPANY_OWNER', 'MANAGER']), vehicleController.toggleEngine);
 
 export default router;
