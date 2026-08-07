@@ -94,8 +94,13 @@ export const processLocationUpdate = async (data: any) => {
     const isOverspeed = (data.speed || 0) > MAX_SPEED;
 
     // 4. Update Vehicle & Driver Status and save exact live GPS coordinates directly onto Vehicle table!
-    const isRunning = (data.speed || 0) > 0;
-    const vStatus = (data.ignitionStatus !== false && isRunning) ? 'RUNNING' : 'STOPPED';
+    let vStatus = 'STOPPED';
+    const speed = data.speed || 0;
+    if (data.ignitionStatus) {
+      vStatus = speed > 0 ? 'RUNNING' : 'IDLE';
+    } else {
+      vStatus = speed > 0 ? 'TOWING' : 'STOPPED';
+    }
     await client.query(`
       UPDATE "Vehicle" 
       SET status = $1, "lastLatitude" = $2, "lastLongitude" = $3, "lastSpeed" = $4, "lastSeen" = NOW(), "updatedAt" = NOW() 
