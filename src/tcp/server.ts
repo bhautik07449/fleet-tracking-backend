@@ -1,6 +1,6 @@
 import net from 'net';
 import { parseRawData, ParsedGPSData } from '../gps/parser';
-import { processLocationUpdate, touchDeviceLastSeen, markDeviceOffline } from '../services/location.service';
+import { processLocationUpdate, touchDeviceLastSeen } from '../services/location.service';
 const Gt06 = require('gt06');
 
 const TCP_PORT = process.env.TCP_PORT ? parseInt(process.env.TCP_PORT) : 4000;
@@ -47,17 +47,24 @@ export const startTcpServer = () => {
                 const lat = rawLat / 1800000.0;
                 const lon = rawLon / 1800000.0;
 
-                if (lat > 1.0 && lon > 1.0 && lat < 90 && lon < 180) {
-                  await processLocationUpdate({
-                    imei,
-                    latitude: lat,
-                    longitude: lon,
-                    speed: speed || 0,
-                    heading: 0,
-                    altitude: 0,
-                    ignitionStatus: undefined,
-                    timestamp: new Date()
-                  });
+                  let extractedIgnition: boolean | undefined = undefined;
+                  
+                  // For 0x22 (decimal 34) Location+Status packet, byte 30 is Terminal Information
+                  if (data.length >= 31 && e.event.number === 34) {
+                    extractedIgnition = Boolean(data[30] & 0x02);
+                  }
+
+                  if (lat > 1.0 && lon > 1.0 && lat < 90 && lon < 180) {
+                    await processLocationUpdate({
+                      imei,
+                      latitude: lat,
+                      longitude: lon,
+                      speed: speed || 0,
+                      heading: 0,
+                      altitude: 0,
+                      ignitionStatus: extractedIgnition,
+                      timestamp: new Date()
+                    });
                   console.log(`[TCP] Extracted Extended Location for IMEI ${imei}: (${lat.toFixed(5)}, ${lon.toFixed(5)}) - Speed: ${speed} km/h`);
                 } else {
                   console.log(`[TCP] Packet contains zero/unfixed coordinates (Device indoors without satellite lock).`);
@@ -142,8 +149,7 @@ export const startTcpServer = () => {
     const handleDisconnect = () => {
       const imei = connectedDevices.get(socket);
       if (imei) {
-        markDeviceOffline(imei);
-        console.log(`[TCP] GPS Device disconnected! Marked IMEI ${imei} as OFFLINE.`);
+        console.log(`[TCP] GPS Device disconnected (IMEI ${imei}). Will go OFFLINE if no reconnect within 2 mins.`);
       }
       connectedDevices.delete(socket);
     };
