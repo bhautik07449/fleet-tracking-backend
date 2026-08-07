@@ -2,6 +2,7 @@ import pool from '../db';
 import crypto from 'crypto';
 import { getIO } from '../socket/index';
 import { createSystemAlert } from './alert.service';
+import { sendEngineCommandToDevice } from '../tcp/server';
 
 export const getVehicles = async (companyId: string, skip?: number, limit?: number) => {
   const res = await pool.query(`
@@ -120,12 +121,29 @@ export const updateVehicle = async (vehicleId: string, companyId: string, data: 
 };
 
 export const toggleEngine = async (vehicleId: string, companyId: string, status: 'ON' | 'OFF') => {
-  const check = await pool.query('SELECT id, "vehicleNumber" FROM "Vehicle" WHERE id = $1 AND "companyId" = $2', [vehicleId, companyId]);
+  const check = await pool.query(`
+    SELECT v.id, v."vehicleNumber", g.imei 
+    FROM "Vehicle" v 
+    LEFT JOIN "GpsDevice" g ON v."gpsDeviceId" = g.id 
+    WHERE v.id = $1 AND v."companyId" = $2
+  `, [vehicleId, companyId]);
+  
   if (check.rows.length === 0) {
     throw new Error('Vehicle not found');
   }
 
   const vehNumber = check.rows[0].vehicleNumber;
+  const imei = check.rows[0].imei;
+
+  if (imei) {
+    try {
+      sendEngineCommandToDevice(imei, status);
+    } catch (e: any) {
+      // Do not block database update if TCP fails, but you could log it
+      console.warn(`[Engine Control] Could not send TCP command to ${imei}: ${e.message}`);
+    }
+  }
+
   await pool.query(
     'UPDATE "Vehicle" SET "engineStatus" = $1, "updatedAt" = NOW() WHERE id = $2 AND "companyId" = $3',
     [status, vehicleId, companyId]

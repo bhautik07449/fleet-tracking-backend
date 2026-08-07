@@ -2,11 +2,54 @@ import net from 'net';
 import { parseRawData, ParsedGPSData } from '../gps/parser';
 import { processLocationUpdate, touchDeviceLastSeen } from '../services/location.service';
 const Gt06 = require('gt06');
+const getCrc16 = require('gt06/crc16');
 
 const TCP_PORT = process.env.TCP_PORT ? parseInt(process.env.TCP_PORT) : 4000;
 
 // Map to store Socket instance -> IMEI
 const connectedDevices = new Map<net.Socket, string>();
+
+export const sendEngineCommandToDevice = (imei: string, command: 'ON' | 'OFF') => {
+  let targetSocket: net.Socket | null = null;
+  for (const [socket, storedImei] of connectedDevices.entries()) {
+    if (storedImei === imei) {
+      targetSocket = socket;
+      break;
+    }
+  }
+
+  if (!targetSocket) {
+    throw new Error('Device is currently offline or not connected via TCP.');
+  }
+
+  // Construct the command string
+  // Engine Cut (OFF) -> Relay,1#
+  // Engine Restore (ON) -> Relay,0#
+  const cmdStr = command === 'OFF' ? 'Relay,1#' : 'Relay,0#';
+  const cmdBuffer = Buffer.from(cmdStr, 'ascii');
+  const cmdLen = cmdBuffer.length;
+  
+  // Format for PT06 Protocol 0x80 (Command)
+  const serverFlag = Buffer.from([0x00, 0x00, 0x00, 0x00]);
+  const contentLen = Buffer.from([cmdLen + 4]); // length of cmd + serverFlag
+  
+  const protocol = Buffer.from([0x80]);
+  const serial = Buffer.from([0x00, 0x01]);
+  
+  const lengthByte = 1 + 1 + 4 + cmdLen + 2 + 2; 
+  const lengthBuf = Buffer.from([lengthByte]);
+  
+  const msgToCRC = Buffer.concat([lengthBuf, protocol, contentLen, serverFlag, cmdBuffer, serial]);
+  const crc16 = getCrc16(msgToCRC);
+  
+  const header = Buffer.from([0x78, 0x78]);
+  const end = Buffer.from([0x0d, 0x0a]);
+  
+  const finalPacket = Buffer.concat([header, msgToCRC, crc16, end]);
+  
+  targetSocket.write(finalPacket);
+  console.log(`[TCP] Transmitted Engine Command '${cmdStr}' to IMEI ${imei}`);
+};
 
 export const startTcpServer = () => {
   const server = net.createServer((socket) => {
