@@ -151,6 +151,7 @@ export const processLocationUpdate = async (data: any) => {
       speed: data.speed,
       heading: data.heading,
       status: vStatus,
+      ignitionStatus: isIgnitionOn,  //acc status on off
       timestamp: data.timestamp
     };
 
