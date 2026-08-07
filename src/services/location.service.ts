@@ -98,6 +98,13 @@ export const processLocationUpdate = async (data: any) => {
     const speed = data.speed || 0;
     
     let isIgnitionOn = data.ignitionStatus;
+    
+    // VIRTUAL IGNITION (For 2-wire Motorcycle installations where ACC wire is not connected)
+    // If the vehicle is moving at a realistic driving speed (>3 km/h), we assume the engine must be ON.
+    if (speed > 3) {
+      isIgnitionOn = true;
+    }
+
     if (isIgnitionOn === undefined) {
       // Inherit ignition state from previous known status in database
       const currentStatus = vehicle.status;
