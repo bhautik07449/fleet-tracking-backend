@@ -38,8 +38,8 @@ export const startOfflineChecker = () => {
       // 2. Find and update all Vehicles whose mapped GpsDevice is INACTIVE or missing
       const vehicleQuery = `
         UPDATE "Vehicle" v
-        SET status = 'OFFLINE', "updatedAt" = NOW()
-        WHERE v.status != 'OFFLINE'
+        SET status = 'Inactive', "updatedAt" = NOW()
+        WHERE v.status != 'Inactive'
         AND (
           v."gpsDeviceId" IS NULL OR 
           v."gpsDeviceId" IN (SELECT id FROM "GpsDevice" WHERE status = 'INACTIVE')
@@ -49,7 +49,7 @@ export const startOfflineChecker = () => {
       const vehRes = await client.query(vehicleQuery);
 
       if (vehRes.rows.length > 0) {
-        console.log(`[JOBS] Marked ${vehRes.rows.length} vehicles as OFFLINE.`);
+        console.log(`[JOBS] Marked ${vehRes.rows.length} vehicles as Inactive.`);
         for (const row of vehRes.rows) {
           if (row.driverId) {
             await client.query(`UPDATE "Driver" SET "isActive" = FALSE, "updatedAt" = NOW() WHERE id = $1`, [row.driverId]);
@@ -58,7 +58,7 @@ export const startOfflineChecker = () => {
             const io = getIO();
             io.to(row.companyId).emit('vehicle-offline', {
               vehicleId: row.vehicleId,
-              status: 'OFFLINE',
+              status: 'Inactive',
               timestamp: new Date().toISOString()
             });
           } catch (e) {}

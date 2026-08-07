@@ -94,20 +94,22 @@ export const processLocationUpdate = async (data: any) => {
     const isOverspeed = (data.speed || 0) > MAX_SPEED;
 
     // 4. Update Vehicle & Driver Status and save exact live GPS coordinates directly onto Vehicle table!
-    let vStatus = 'STOPPED';
+    let vStatus = 'Stopped';
     const speed = data.speed || 0;
     
     let isIgnitionOn = data.ignitionStatus;
     if (isIgnitionOn === undefined) {
       // Inherit ignition state from previous known status in database
       const currentStatus = vehicle.status;
-      isIgnitionOn = currentStatus === 'RUNNING' || currentStatus === 'IDLE';
+      isIgnitionOn = currentStatus === 'Moving' || currentStatus === 'Idle' || currentStatus === 'Overspeed';
     }
 
-    if (isIgnitionOn) {
-      vStatus = speed > 0 ? 'RUNNING' : 'IDLE';
+    if (isOverspeed) {
+      vStatus = 'Overspeed';
+    } else if (isIgnitionOn) {
+      vStatus = speed > 0 ? 'Moving' : 'Idle';
     } else {
-      vStatus = speed > 0 ? 'TOWING' : 'STOPPED';
+      vStatus = speed > 0 ? 'Moving' : 'Stopped'; // Even if ignition is off, if speed > 0 we classify as Moving (since Towing is removed)
     }
     await client.query(`
       UPDATE "Vehicle" 
@@ -180,13 +182,13 @@ export const touchDeviceLastSeen = async (imei: string) => {
     const res = await client.query('UPDATE "GpsDevice" SET "lastSeen" = NOW(), status = $1, "updatedAt" = NOW() WHERE imei = $2 RETURNING id, "companyId", "lastLatitude", "lastLongitude", "lastSpeed"', ['ACTIVE', imei]);
     if (res.rows.length > 0) {
       const device = res.rows[0];
-      // If the mapped vehicle was OFFLINE, change its status to STOPPED and awaken assigned driver
-      const vRes = await client.query(`UPDATE "Vehicle" SET status = CASE WHEN status = 'OFFLINE' THEN 'STOPPED' ELSE status END, "updatedAt" = NOW() WHERE "gpsDeviceId" = $1 RETURNING id, status`, [device.id]);
+      // If the mapped vehicle was Inactive, change its status to Stopped and awaken assigned driver
+      const vRes = await client.query(`UPDATE "Vehicle" SET status = CASE WHEN status = 'Inactive' THEN 'Stopped' ELSE status END, "updatedAt" = NOW() WHERE "gpsDeviceId" = $1 RETURNING id, status`, [device.id]);
       await client.query(`UPDATE "Driver" SET "isActive" = TRUE, "updatedAt" = NOW() WHERE id = (SELECT "driverId" FROM "Vehicle" WHERE "gpsDeviceId" = $1)`, [device.id]);
       try {
         const io = getIO();
         const vehicleId = vRes.rows.length > 0 ? vRes.rows[0].id : undefined;
-        const vehicleStatus = vRes.rows.length > 0 ? vRes.rows[0].status : 'STOPPED';
+        const vehicleStatus = vRes.rows.length > 0 ? vRes.rows[0].status : 'Stopped';
 
         io.to(device.companyId).emit('device-online', { 
           imei, 
