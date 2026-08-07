@@ -55,7 +55,7 @@ export const startTcpServer = () => {
                     speed: speed || 0,
                     heading: 0,
                     altitude: 0,
-                    ignitionStatus: false,
+                    ignitionStatus: undefined,
                     timestamp: new Date()
                   });
                   console.log(`[TCP] Extracted Extended Location for IMEI ${imei}: (${lat.toFixed(5)}, ${lon.toFixed(5)}) - Speed: ${speed} km/h`);
@@ -101,7 +101,7 @@ export const startTcpServer = () => {
               speed: msg.speed || 0,
               heading: msg.course || 0,
               altitude: 0,
-              ignitionStatus: false,
+              ignitionStatus: msg.terminalInfo?.ignition !== undefined ? msg.terminalInfo.ignition : undefined,
               timestamp: msg.fixTime ? new Date(msg.fixTime) : new Date()
             };
 

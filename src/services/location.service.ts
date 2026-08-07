@@ -96,7 +96,15 @@ export const processLocationUpdate = async (data: any) => {
     // 4. Update Vehicle & Driver Status and save exact live GPS coordinates directly onto Vehicle table!
     let vStatus = 'STOPPED';
     const speed = data.speed || 0;
-    if (data.ignitionStatus) {
+    
+    let isIgnitionOn = data.ignitionStatus;
+    if (isIgnitionOn === undefined) {
+      // Inherit ignition state from previous known status in database
+      const currentStatus = vehicle.status;
+      isIgnitionOn = currentStatus === 'RUNNING' || currentStatus === 'IDLE';
+    }
+
+    if (isIgnitionOn) {
       vStatus = speed > 0 ? 'RUNNING' : 'IDLE';
     } else {
       vStatus = speed > 0 ? 'TOWING' : 'STOPPED';
