@@ -31,7 +31,7 @@ export const processLocationUpdate = async (data: any) => {
     }
     const device = deviceRes.rows[0];
 
-    const vehicleRes = await client.query('SELECT id, "maxSpeed", "lastLatitude", "lastLongitude", "lastSeen" FROM "Vehicle" WHERE "gpsDeviceId" = $1', [device.id]);
+    const vehicleRes = await client.query('SELECT id, "maxSpeed", "lastLatitude", "lastLongitude", "lastSeen", status FROM "Vehicle" WHERE "gpsDeviceId" = $1', [device.id]);
     
     // --- Anomaly / Spiderweb Detection ---
     if (vehicleRes.rows.length > 0) {
