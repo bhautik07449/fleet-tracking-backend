@@ -18,7 +18,7 @@ services:
       - JWT_EXPIRES_IN=7d
       - JWT_REFRESH_SECRET=W4BnPJzZT4aGBJpDnX0AVnwgRybfmwDGG+SicFTJJvlHNaAO3kwazRVMzdaHS5BWBK9rAISndS1OpqeBkh8HPg==
       - JWT_REFRESH_EXPIRES_IN=30d
-      - CORS_ORIGIN=https://gps.trucoretechnology.com,https://trucoretechnology.com,https://www.trucoretechnology.com,https://api.trucoretechnology.com
+      - CORS_ORIGIN=https://gps.trucoretechnology.com,http://192.168.1.4:5173
     depends_on:
       postgres:
         condition: service_healthy
