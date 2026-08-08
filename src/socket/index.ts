@@ -7,7 +7,8 @@ let io: Server;
 export const initSocketServer = (server: HttpServer) => {
   io = new Server(server, {
     cors: {
-      origin: '*',
+      origin: (process.env.CORS_ORIGIN || '*').split(',').map(o => o.trim()),
+      credentials: true,
     },
   });
 
